@@ -1,5 +1,9 @@
 # 3D-Mesh-Downloader
 
+<p align="center">
+  <img src="assets/icon.svg" width="88" height="88" alt="3D Mesh Downloader">
+</p>
+
 Extensão Chrome (Manifest V3) que **exporta a cena 3D de qualquer página** —
 em `.obj` (+ `.mtl`) ou convertida direto para `.stl`.
 
@@ -55,6 +59,19 @@ pronto para upload no [Painel do Desenvolvedor](https://chrome.google.com/websto
 2. Clique no ícone da extensão → o contador mostra quantas malhas foram capturadas
 3. Ajuste as opções e clique em **Baixar malhas**
 4. Os arquivos `.obj` (e `.mtl`) caem na pasta de downloads
+
+O popup é dividido em **abas**, no estilo do Chrome:
+
+| Aba | O que fica lá |
+|---|---|
+| **Modelos** | contador, filtro por nome e tamanho, atalhos de seleção e a lista de malhas |
+| **Exclusão** | padrões que nunca entram no arquivo e a prévia do que está sendo excluído |
+| **Exportar** | formato (OBJ/STL) e as opções de exportação |
+
+O botão **Baixar** e a barra de status ficam fora das abas: continuam visíveis em
+qualquer uma, já mostrando quantas malhas serão baixadas. O badge de cada aba
+resume o estado (malhas selecionadas, padrões ativos) e a última aba usada é
+restaurada ao reabrir o popup. Teclado: `←`/`→` alternam e `1`/`2`/`3` saltam.
 
 > A extensão só captura cenas **construídas depois** que ela é injetada. Se o contador
 > ficar em `0`, recarregue a página (F5).
@@ -280,7 +297,16 @@ powershell -ExecutionPolicy Bypass -File tools\relaunch-debug-chrome.ps1
 
 # 2. dispara uma exportacao e observa os eventos de download
 node tools\cdp-download-test.js
+
+# 3. abre o popup real (chrome-extension://.../popup.html), percorre as abas,
+#    adiciona um padrao de exclusao e baixa pelo proprio botao
+node tools\cdp-popup-test.js
 ```
+
+O `cdp-popup-test.js` confere o estado das abas (`aria-selected`, painel visível,
+badges), a persistência da aba e o download de ponta a ponta, e salva um
+screenshot de cada aba em `tools/out/`. Ele recarrega a extensão e a aba alvo,
+porque recarregar a extensão orfana o content script já injetado.
 
 > O `--remote-debugging-port` é ignorado pelo Chrome 136+ quando se usa o perfil
 > padrão, por isso a instância de teste usa um `--user-data-dir` próprio.

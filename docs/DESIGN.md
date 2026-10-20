@@ -176,6 +176,42 @@ A solução: o service worker pergunta às próprias content scripts o
 `location.href` delas (`chrome.tabs.sendMessage(tabId, {type: 'MDL_WHERE'})`).
 Nenhuma permissão extra, nenhuma leitura de histórico.
 
+A comparação não é por substring: a URL guardada pode envelhecer quando um SPA
+troca de rota (`/workspace/generate/<id>` → `/workspace/segmentation/<id>`).
+O `scoreMatch()` pontua os candidatos do mais forte para o mais fraco:
+
+| Pontuação | Critério |
+|---|---|
+| 100 | mesmo `pathname` (o hash do deep link é ignorado) |
+| 80 | mesmo último segmento — o id do modelo, mesmo com a rota trocada |
+| 60 | um caminho é prefixo do outro |
+| 40 | o último segmento aparece em qualquer posição do caminho |
+| 0 | outra origem (nunca casa) |
+
+A aba com maior pontuação vence. Foi o teste real que revelou o problema: o
+popup abria com 68 malhas e, minutos depois, o download falhava com "não foi
+possível acessar a aba ativa", porque o app tinha mudado de rota e a URL do deep
+link deixara de casar.
+
+### Popup em abas
+
+A interface segue o modelo de abas do Chrome — faixa com favicon e rótulo, aba
+ativa na cor do conteúdo e as "cortinas" côncavas ligando a aba ao painel:
+
+| Aba | Conteúdo |
+|---|---|
+| Modelos | contador, filtros, atalhos de seleção, lista |
+| Exclusão | padrões, ajuda e prévia do que está sendo excluído |
+| Exportar | formato e opções |
+
+As abas são `role="tab"`/`role="tabpanel"` com `aria-selected` e navegação por
+`←`/`→` e `1`–`3`. A aba ativa é gravada em `chrome.storage.local`: o popup
+reabre onde o usuário parou, como o Chrome restaura a última aba.
+
+O botão de download e o status ficam **fora** do painel, para continuarem
+visíveis em qualquer aba. Os badges mostram a seleção atual e o número de
+padrões ativos — informação que muda com o uso, não decoração.
+
 ### `storage` em vez de sincronização
 
 A lista de exclusão é local do navegador (`chrome.storage.local`). Ela não

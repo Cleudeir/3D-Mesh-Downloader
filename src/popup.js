@@ -38,8 +38,13 @@
     excludeInput: document.getElementById('excludeInput'),
     addExclude: document.getElementById('addExclude'),
     clearExclude: document.getElementById('clearExclude'),
-    patternList: document.getElementById('patternList')
+    patternList: document.getElementById('patternList'),
+    excludePreview: document.getElementById('excludePreview'),
+    tabBadgeModels: document.getElementById('tabBadgeModels'),
+    tabBadgeExclude: document.getElementById('tabBadgeExclude')
   };
+
+  var ACTIVE_TAB_KEY = 'popupTab';
 
   var models = [];            // descriptors coming from the page
   var selection = new Set();  // ids the user wants to export
@@ -94,6 +99,7 @@
 
   function renderPatterns() {
     els.patternList.textContent = '';
+    setBadge(els.tabBadgeExclude, excludePatterns.length);
     if (!excludePatterns.length) {
       var none = document.createElement('span');
       none.className = 'no-patterns';
@@ -142,6 +148,72 @@
 
   function fmtCount(n) {
     return n.toLocaleString('pt-BR');
+  }
+
+  /** Shows a count on a tab badge, or hides it when the count is zero. */
+  function setBadge(el, value) {
+    if (!el) return;
+    if (value > 0) {
+      el.textContent = String(value);
+      el.hidden = false;
+    } else {
+      el.hidden = true;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Abas (estilo Chrome)
+  //
+  // A aba ativa fica gravada no storage, para o popup reabrir onde o usuario
+  // parou - igual o Chrome restaura a ultima aba ativa.
+  // ---------------------------------------------------------------------------
+
+  var tabButtons = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+  var panels = {};
+  tabButtons.forEach(function (button) {
+    var panel = document.getElementById(button.getAttribute('aria-controls'));
+    if (panel) panels[button.dataset.tab] = panel;
+  });
+
+  function selectTab(name, moveFocus) {
+    if (!panels[name]) name = 'modelos';
+    tabButtons.forEach(function (button) {
+      var on = button.dataset.tab === name;
+      button.setAttribute('aria-selected', on ? 'true' : 'false');
+      button.tabIndex = on ? 0 : -1;
+      if (on && moveFocus) button.focus();
+    });
+    Object.keys(panels).forEach(function (key) {
+      panels[key].hidden = key !== name;
+    });
+    try { chrome.storage.local.set({ [ACTIVE_TAB_KEY]: name }); } catch (e) { /* storage indisponivel */ }
+  }
+
+  tabButtons.forEach(function (button, index) {
+    button.addEventListener('click', function () { selectTab(button.dataset.tab); });
+    button.addEventListener('keydown', function (event) {
+      var delta = event.key === 'ArrowRight' ? 1 : (event.key === 'ArrowLeft' ? -1 : 0);
+      if (delta) {
+        event.preventDefault();
+        var next = (index + delta + tabButtons.length) % tabButtons.length;
+        selectTab(tabButtons[next].dataset.tab, true);
+        return;
+      }
+      if (/^[1-9]$/.test(event.key) && tabButtons[Number(event.key) - 1]) {
+        event.preventDefault();
+        selectTab(tabButtons[Number(event.key) - 1].dataset.tab, true);
+      }
+    });
+  });
+
+  function restoreTab() {
+    try {
+      chrome.storage.local.get({ [ACTIVE_TAB_KEY]: 'modelos' }, function (items) {
+        selectTab(items && items[ACTIVE_TAB_KEY] ? items[ACTIVE_TAB_KEY] : 'modelos');
+      });
+    } catch (e) {
+      selectTab('modelos');
+    }
   }
 
   /** The export format currently selected. */
@@ -229,7 +301,42 @@
       : (info.count === 1 ? 'malha encontrada' : 'malhas encontradas');
 
     renderList();
+    renderExcludePreview();
     updateSelectionPill();
+  }
+
+  /** Models currently dropped by the exclusion list (the "Exclusão" tab preview). */
+  function renderExcludePreview() {
+    if (!els.excludePreview) return;
+    var excluded = models.filter(function (m) { return m.excluded; });
+
+    els.excludePreview.textContent = '';
+    if (!excluded.length) {
+      var none = document.createElement('div');
+      none.className = 'empty';
+      none.textContent = 'nenhuma - nenhuma malha esta sendo excluida';
+      els.excludePreview.appendChild(none);
+      return;
+    }
+
+    excluded.forEach(function (model) {
+      var row = document.createElement('div');
+      row.className = 'hit';
+
+      var name = document.createElement('span');
+      name.className = 'mname';
+      name.textContent = model.name;
+      name.style.textDecoration = 'line-through';
+      name.title = 'excluido pelo padrao ' + (model.excludedBy || '?');
+
+      var meta = document.createElement('span');
+      meta.className = 'mmeta';
+      meta.textContent = (model.excludedBy || '?') + ' · ' + fmtCount(model.faceCount) + 'f';
+
+      row.appendChild(name);
+      row.appendChild(meta);
+      els.excludePreview.appendChild(row);
+    });
   }
 
   function renderList() {
@@ -315,6 +422,7 @@
     els.pill.textContent = selected.length + '/' + models.length + ' · ~' + fmtSize(total);
     els.download.disabled = selected.length === 0;
     els.download.textContent = selected.length === 1 ? 'Baixar 1 malha' : 'Baixar ' + selected.length + ' malhas';
+    setBadge(els.tabBadgeModels, selected.length);
   }
 
   /** OBJ-only options do not apply to STL: hide them and explain why. */
@@ -556,6 +664,7 @@
   });
 
   applyFormatToOptions();
+  restoreTab();
   loadPatterns(function () {
     renderPatterns();
     requestInfo();

@@ -8,17 +8,14 @@
 
   <rect width="128" height="128" rx="28" fill="url(#bg)"/>
 
-  <!-- cubo wireframe (malha) -->
-  <g fill="none" stroke="#ffffff" stroke-width="6" stroke-linejoin="round" stroke-linecap="round">
-    <path d="M52 22 L86 41 L52 60 L18 41 Z"/>
-    <path d="M18 41 L18 78 L52 97 L86 78 L86 41"/>
-    <path d="M52 60 L52 97"/>
-  </g>
-
-  <!-- badge de download -->
-  <circle cx="92" cy="90" r="27" fill="#ffffff"/>
-  <g fill="none" stroke="#7a3ff0" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M92 76 L92 95"/>
-    <path d="M83 88 L92 97 L101 88"/>
+  <!-- mesma marca do popup: cubo wireframe com seta de download -->
+  <g transform="translate(8.8 9.26) scale(4.6)"
+     fill="none" stroke="#ffffff" stroke-width="1.8"
+     stroke-linejoin="round" stroke-linecap="round">
+    <path d="M12 2.5 19.2 6.6 12 10.7 4.8 6.6Z"/>
+    <path d="M4.8 6.6v5.8L12 16.4l7.2-3.9V6.6"/>
+    <path d="M12 10.7v5.7"/>
+    <path d="M12 17.6v2.9"/>
+    <path d="M9.6 18.9 12 21.3 14.4 18.9"/>
   </g>
 </svg>

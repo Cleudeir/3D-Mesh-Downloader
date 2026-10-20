@@ -577,6 +577,42 @@ section('15. Lista de exclusao por nome');
 }
 
 // ---------------------------------------------------------------------------
+section('Deep link: achar a aba mesmo quando o SPA troca de rota');
+{
+  const vm = require('vm');
+  const fs = require('fs');
+  const path = require('path');
+
+  const code = fs.readFileSync(path.join(__dirname, '..', 'src', 'background.js'), 'utf8');
+  const sandbox = {
+    chrome: {
+      runtime: { onMessage: { addListener() {} } },
+      tabs: { query: async () => [], sendMessage: async () => { throw new Error('sem content script'); } }
+    },
+    URL,
+    console,
+    Promise
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(code, sandbox);
+
+  const score = sandbox.scoreMatch;
+  const base = 'https://studio.tripo3d.ai';
+
+  check('a funcao de comparacao esta exposta', typeof score === 'function');
+  eq('url identica', score(base + '/workspace/generate/x', base + '/workspace/generate/x'), 100);
+  eq('hash do deep link e ignorado', score(base + '/workspace/generate/x', base + '/workspace/generate/x#3dmesh=export'), 100);
+  eq('SPA trocou a rota mas manteve o id',
+    score(base + '/workspace/generate/abc-123', base + '/workspace/segmentation/abc-123'), 80);
+  eq('um caminho e prefixo do outro',
+    score(base + '/workspace/generate', base + '/workspace/generate/abc'), 60);
+  eq('id em outra posicao do caminho',
+    score(base + '/workspace/generate/abc-123', base + '/x/abc-123/y'), 40);
+  eq('outro site nao casa', score('https://exemplo.com/a/b', base + '/a/b'), 0);
+  eq('url invalida nao quebra', score('nao-e-url', base + '/a'), 0);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\n' + '-'.repeat(58));
 console.log('  ' + passed + ' passed, ' + failed + ' failed');
 if (failures.length) {

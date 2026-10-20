@@ -8,6 +8,7 @@
     :root {
       --bg: #f6f7fb;
       --card: #ffffff;
+      --strip: #dee1e6;
       --text: #1f2430;
       --muted: #6b7280;
       --line: #e4e7ee;
@@ -20,6 +21,7 @@
       :root {
         --bg: #14161c;
         --card: #1c1f27;
+        --strip: #23262f;
         --text: #e8eaf0;
         --muted: #9aa2b1;
         --line: #2b303c;
@@ -27,6 +29,7 @@
       }
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    [hidden] { display: none !important; }
     body {
       width: 360px;
       max-height: 620px;
@@ -47,13 +50,91 @@
     header h1 { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
     header span { display: block; font-size: 11px; color: var(--muted); font-weight: 400; }
 
-    .card {
-      margin: 0 12px 10px;
+    /* ---------- faixa de abas (estilo Chrome) ---------- */
+    .tabstrip {
+      display: flex;
+      align-items: flex-end;
+      gap: 1px;
+      margin: 0 8px;
+      padding: 6px 4px 0;
+      background: var(--strip);
+      border-radius: 10px 10px 0 0;
+      user-select: none;
+    }
+    .tab {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+      min-width: 0;
+      padding: 7px 8px 8px;
+      border: 0;
+      border-radius: 9px 9px 0 0;
+      background: var(--strip);
+      color: var(--muted);
+      font: inherit;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .12s ease, color .12s ease;
+    }
+    .tab:hover { background: color-mix(in srgb, var(--strip) 55%, var(--card) 45%); color: var(--text); }
+    .tab[aria-selected="true"] { background: var(--card); color: var(--text); }
+    .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 9px; }
+    /* "cortina" concava que liga a aba ativa a área de conteúdo */
+    .tab[aria-selected="true"]::before,
+    .tab[aria-selected="true"]::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      width: 11px;
+      height: 11px;
+      background: var(--card);
+    }
+    .tab[aria-selected="true"]::before { left: -11px; border-top-left-radius: 11px; }
+    .tab[aria-selected="true"]::after { right: -11px; border-top-right-radius: 11px; }
+    .tico {
+      width: 14px;
+      height: 14px;
+      flex: none;
+      color: var(--accent);
+      opacity: .75;
+      transition: opacity .12s ease;
+    }
+    .tab[aria-selected="true"] .tico,
+    .tab:hover .tico { opacity: 1; }
+    .tlabel {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .tbadge {
+      margin-left: auto;
+      flex: none;
+      min-width: 16px;
+      padding: 0 4px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 16px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    .tab[aria-selected="true"] .tbadge { background: var(--accent); }
+
+    /* ---------- area de conteudo (continua a aba ativa) ---------- */
+    .panels {
+      margin: 0 8px 10px;
       background: var(--card);
       border: 1px solid var(--line);
-      border-radius: 10px;
+      border-top: 0;
+      border-radius: 0 0 10px 10px;
       padding: 12px;
     }
+
     .count-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
     .count { font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
     .count-label { color: var(--muted); font-size: 12px; }
@@ -69,7 +150,7 @@
 
     /* ---------- filtros ---------- */
     .filter-row { display: flex; gap: 6px; }
-    input[type="search"], input[type="number"] {
+    input[type="search"], input[type="number"], input[type="text"] {
       font: inherit;
       font-size: 12px;
       color: var(--text);
@@ -80,7 +161,9 @@
       min-width: 0;
     }
     input[type="search"] { flex: 1; }
-    input[type="number"] { width: 64px; }
+    input[type="number"] { width: 63px; font-size: 11.5px; }
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
     input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
     .quick { display: flex; gap: 6px; margin-top: 7px; }
     .quick button {
@@ -97,11 +180,6 @@
     .quick button:hover { color: var(--text); border-color: var(--accent); }
 
     /* ---------- lista de exclusao ---------- */
-    .exclude {
-      margin-top: 10px;
-      padding-top: 8px;
-      border-top: 1px solid var(--line);
-    }
     .exclude-head {
       display: flex;
       align-items: center;
@@ -119,19 +197,24 @@
       font-size: 11px;
       font-weight: 500;
       text-decoration: underline;
+      cursor: pointer;
     }
     .exclude-head .link:hover { color: var(--err); }
     button.tiny {
       width: auto;
       padding: 5px 9px;
+      font: inherit;
       font-size: 11px;
+      font-weight: 600;
       border: 1px solid var(--line);
       background: transparent;
       color: var(--text);
+      border-radius: 6px;
+      cursor: pointer;
       flex: none;
     }
     button.tiny:hover { border-color: var(--accent); color: var(--accent); }
-    .patterns { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+    .patterns { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
     .pattern {
       display: inline-flex;
       align-items: center;
@@ -152,14 +235,36 @@
       color: var(--muted);
       font-size: 13px;
       line-height: 1;
+      cursor: pointer;
     }
     .pattern button:hover { color: var(--err); }
     .no-patterns { color: var(--muted); font-size: 11px; }
+    .exclude-preview {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+    .exclude-preview h3 {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+    .hit {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      padding: 2px 0;
+    }
+    .hit .mname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hit .mmeta { color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+    #excludePreview { max-height: 148px; overflow-y: auto; }
 
     /* ---------- lista de modelos ---------- */
     .models {
-      margin-top: 9px;
-      max-height: 190px;
+      margin-top: 10px;
+      max-height: 214px;
       overflow-y: auto;
       border-top: 1px solid var(--line);
       padding-top: 6px;
@@ -200,22 +305,22 @@
     .models label.excluded .excl { border-color: var(--err); color: var(--err); }
     .empty { color: var(--muted); font-size: 12px; padding: 8px 2px; }
 
-    details { margin-top: 10px; }
-    summary {
-      cursor: pointer;
-      font-weight: 600;
-      font-size: 12px;
-      color: var(--muted);
-      list-style: none;
-      user-select: none;
-    }
-    summary::-webkit-details-marker { display: none; }
-    summary::before { content: '\25B8 '; }
-    details[open] summary::before { content: '\25BE '; }
-    .opts { margin-top: 8px; display: grid; gap: 6px; }
+    /* ---------- opcoes de exportacao ---------- */
+    .opts { display: grid; gap: 6px; }
     label.opt { display: flex; align-items: flex-start; gap: 7px; cursor: pointer; font-size: 12px; }
     label.opt input { margin: 2px 0 0; accent-color: var(--accent); flex: none; }
     label.opt small { display: block; color: var(--muted); font-size: 11px; }
+    select {
+      width: 100%;
+      font: inherit;
+      font-size: 12px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 8px;
+    }
+    select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
     .status {
       display: none;
@@ -256,68 +361,113 @@
 </head>
 <body>
   <header>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 2 2 7l10 5 10-5-10-5Z"/>
-      <path d="M2 17l10 5 10-5"/>
-      <path d="M2 12l10 5 10-5"/>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+      <path d="M12 2.5 19.2 6.6 12 10.7 4.8 6.6Z"/>
+      <path d="M4.8 6.6v5.8L12 16.4l7.2-3.9V6.6"/>
+      <path d="M12 10.7v5.7"/>
+      <path d="M12 17.6v2.9"/>
+      <path d="M9.6 18.9 12 21.3 14.4 18.9"/>
     </svg>
     <h1>3D Mesh Downloader <span id="version">v2.0.0</span></h1>
   </header>
 
-  <div class="card">
-    <div class="count-row">
-      <span class="count" id="meshCount">-</span>
-      <span class="count-label" id="meshLabel">malhas encontradas</span>
-      <span class="pill" id="selectionPill">0 selecionadas</span>
-    </div>
+  <nav class="tabstrip" role="tablist" aria-label="Secoes da extensao">
+    <button type="button" class="tab" id="tab-modelos" role="tab" data-tab="modelos"
+            aria-selected="true" aria-controls="panel-modelos" title="Malhas encontradas na pagina">
+      <svg class="tico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+        <path d="M12 2.5 19.2 6.6 12 10.7 4.8 6.6Z"/>
+        <path d="M4.8 6.6v5.8L12 16.4l7.2-3.9V6.6"/>
+        <path d="M12 10.7v5.7"/>
+      </svg>
+      <span class="tlabel">Modelos</span>
+      <span class="tbadge" id="tabBadgeModels" hidden>0</span>
+    </button>
 
-    <div style="margin-top: 10px;">
-      <div class="filter-row">
-        <input type="search" id="filterText" placeholder="filtrar por nome..." autocomplete="off">
-        <input type="number" id="filterMinKB" placeholder="min KB" min="0" step="1" title="tamanho minimo estimado">
-        <input type="number" id="filterMaxKB" placeholder="max KB" min="0" step="1" title="tamanho maximo estimado">
-      </div>
-      <div class="quick">
-        <button type="button" id="selectAll">Todos</button>
-        <button type="button" id="selectNone">Nenhum</button>
-        <button type="button" id="selectVisible">So os visiveis</button>
-      </div>
-    </div>
+    <button type="button" class="tab" id="tab-exclusao" role="tab" data-tab="exclusao"
+            aria-selected="false" aria-controls="panel-exclusao" tabindex="-1"
+            title="Padroes que nunca devem entrar no arquivo">
+      <svg class="tico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="8.6"/>
+        <path d="M6 18 18 6"/>
+      </svg>
+      <span class="tlabel">Exclusão</span>
+      <span class="tbadge" id="tabBadgeExclude" hidden>0</span>
+    </button>
 
-    <div class="exclude">
+    <button type="button" class="tab" id="tab-exportar" role="tab" data-tab="exportar"
+            aria-selected="false" aria-controls="panel-exportar" tabindex="-1"
+            title="Formato e opcoes de exportacao">
+      <svg class="tico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+        <path d="M12 3.2v10.2"/>
+        <path d="M7.6 9.6 12 14l4.4-4.4"/>
+        <path d="M4.6 16.2v4.2h14.8v-4.2"/>
+      </svg>
+      <span class="tlabel">Exportar</span>
+    </button>
+  </nav>
+
+  <div class="panels">
+    <!-- ---------- aba: modelos ---------- -->
+    <section class="panel" id="panel-modelos" role="tabpanel" aria-labelledby="tab-modelos">
+      <div class="count-row">
+        <span class="count" id="meshCount">-</span>
+        <span class="count-label" id="meshLabel">malhas encontradas</span>
+        <span class="pill" id="selectionPill">0 selecionadas</span>
+      </div>
+
+      <div style="margin-top: 10px;">
+        <div class="filter-row">
+          <input type="search" id="filterText" placeholder="filtrar por nome..." autocomplete="off">
+          <input type="number" id="filterMinKB" placeholder="min KB" min="0" step="1" title="tamanho minimo estimado">
+          <input type="number" id="filterMaxKB" placeholder="max KB" min="0" step="1" title="tamanho maximo estimado">
+        </div>
+        <div class="quick">
+          <button type="button" id="selectAll">Todos</button>
+          <button type="button" id="selectNone">Nenhum</button>
+          <button type="button" id="selectVisible">So os visiveis</button>
+        </div>
+      </div>
+
+      <div class="models" id="modelList">
+        <div class="empty">nenhuma malha encontrada</div>
+      </div>
+    </section>
+
+    <!-- ---------- aba: exclusao ---------- -->
+    <section class="panel" id="panel-exclusao" role="tabpanel" aria-labelledby="tab-exclusao" hidden>
       <div class="exclude-head">
         <span>Lista de exclusao</span>
         <button type="button" id="clearExclude" class="link">limpar</button>
       </div>
-      <div class="filter-row" style="margin-top:5px;">
-        <input type="text" id="excludeInput" placeholder="ex.: X_*  ou  skeleton-*" autocomplete="off">
+      <div class="filter-row" style="margin-top:6px;">
+        <input type="text" id="excludeInput" placeholder="ex.: X_*  ou  skeleton-*" autocomplete="off" style="flex:1;">
         <button type="button" id="addExclude" class="tiny">Add</button>
       </div>
       <div class="patterns" id="patternList"></div>
-      <p class="hint" style="margin:5px 0 0;">
+      <p class="hint" style="margin:7px 0 0;">
         <code>*</code> = qualquer trecho &middot; <code>?</code> = um caractere.<br>
         <code>X*</code> pega a familia toda (X, X_1, XY) &middot; <code>X_1</code> pega so o segundo.<br>
         A lista fica salva no navegador, entre sessoes.
       </p>
-    </div>
+      <div class="exclude-preview">
+        <h3>Excluidas nesta pagina</h3>
+        <div id="excludePreview"><div class="empty">nenhuma</div></div>
+      </div>
+    </section>
 
-    <div class="models" id="modelList">
-      <div class="empty">nenhuma malha encontrada</div>
-    </div>
-
-    <details id="optionsDetails">
-      <summary>Opcoes de exportacao</summary>
+    <!-- ---------- aba: exportar ---------- -->
+    <section class="panel" id="panel-exportar" role="tabpanel" aria-labelledby="tab-exportar" hidden>
       <div class="opts">
         <label class="opt">
           <span>Formato do arquivo
-            <select id="format" style="margin-top:5px;width:100%;font:inherit;font-size:12px;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;">
+            <select id="format" style="margin-top:5px;">
               <option value="obj">OBJ (+ .mtl) - com materiais e UVs</option>
               <option value="stl">STL binario - convertido direto, ideal para impressao 3D</option>
               <option value="stl-ascii">STL ASCII - convertido direto, em texto</option>
             </select>
           </span>
         </label>
-        <div class="note" id="stlNote" style="display:none;font-size:11px;color:var(--muted);padding:6px 8px;background:var(--accent-soft);border-radius:6px;">
+        <div id="stlNote" style="display:none;font-size:11px;color:var(--muted);padding:6px 8px;background:var(--accent-soft);border-radius:6px;">
           STL e um formato de malha unica: os modelos sao fundidos em uma sopa de triangulos,
           as normais sao recalculadas por face e materiais/UVs nao cabem no arquivo.
           A conversao acontece no navegador - o .obj nunca e gerado.
@@ -355,7 +505,7 @@
           </span>
         </label>
       </div>
-    </details>
+    </section>
   </div>
 
   <div class="status" id="status"></div>
