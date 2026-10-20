@@ -72,6 +72,11 @@
         <option value="stl-ascii">STL ASCII</option>
       </select>
     </div>
+    <div class="row">
+      <input id="exclude" placeholder="excluir: X_* ou grade_*" style="flex:1;font:inherit;font-size:12px;color:inherit;background:#12141a;border:1px solid #2b303c;border-radius:6px;padding:6px 8px;">
+      <button class="ghost" id="addExclude" style="flex:none;width:auto;padding:6px 10px;">Add</button>
+    </div>
+    <div id="patterns" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;"></div>
 
     <div id="models"></div>
     <div id="out">pronto</div>
@@ -171,7 +176,39 @@
     // ---- painel: mesma logica de filtro do popup ---------------------------
     const listEl = document.getElementById('models');
     const pillEl = document.getElementById('pill');
-    let models = [], selection = new Set();
+    let models = [], selection = new Set(), patterns = [];
+
+    // mesmo padrao de curinga da extensao: * = qualquer trecho, ? = um caractere
+    const toRegExp = (p) => new RegExp('^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i');
+    const excludedBy = (m) => patterns.find((p) => { try { return toRegExp(p).test(m.name); } catch (e) { return false; } }) || null;
+
+    function renderPatterns() {
+      const box = document.getElementById('patterns');
+      box.textContent = '';
+      if (!patterns.length) {
+        box.innerHTML = '<span style="color:#9aa2b1;font-size:11px">nenhum padrao</span>';
+        return;
+      }
+      patterns.forEach((p) => {
+        const chip = document.createElement('span');
+        chip.style.cssText = 'font-size:11px;font-family:ui-monospace,monospace;background:#3a2020;border:1px solid #6a3030;border-radius:20px;padding:2px 8px;';
+        chip.textContent = p + ' ';
+        const x = document.createElement('button');
+        x.textContent = '\u00d7';
+        x.style.cssText = 'background:none;border:0;color:#9aa2b1;cursor:pointer;';
+        x.onclick = () => { patterns = patterns.filter((q) => q !== p); renderPatterns(); refresh(); };
+        chip.appendChild(x);
+        box.appendChild(chip);
+      });
+    }
+
+    document.getElementById('addExclude').onclick = () => {
+      const v = document.getElementById('exclude').value.trim();
+      if (v && !patterns.includes(v)) patterns.push(v);
+      document.getElementById('exclude').value = '';
+      renderPatterns();
+      refresh();
+    };
 
     const ask = (type, payload, timeout) => new Promise((resolve) => {
       const h = (ev) => {
@@ -201,12 +238,16 @@
       const visible = filter();
       listEl.textContent = '';
       visible.forEach((m) => {
+        const ex = excludedBy(m);
         const label = document.createElement('label');
+        if (ex) label.style.opacity = '.45';
         const box = document.createElement('input');
         box.type = 'checkbox';
-        box.checked = selection.has(m.id);
+        box.checked = !ex && selection.has(m.id);
+        box.disabled = !!ex;
         box.onchange = () => { box.checked ? selection.add(m.id) : selection.delete(m.id); render(); };
         const n = document.createElement('span'); n.className = 'n'; n.textContent = m.name;
+        if (ex) n.style.textDecoration = 'line-through';
         const meta = document.createElement('span'); meta.className = 'm';
         meta.textContent = `${m.vertexCount}v · ${m.faceCount}f · ~${fmt(m.sizeBytes)}`;
         label.append(box, n, meta);
@@ -217,7 +258,7 @@
     }
 
     async function refresh() {
-      const info = await ask('MDL_INFO', { type: 'MDL_GET_INFO' }, 6000);
+      const info = await ask('MDL_INFO', { type: 'MDL_GET_INFO', exclude: patterns }, 6000);
       if (!info) { log('sem resposta da pagina'); return; }
       const known = new Set(models.map((m) => m.id));
       models = info.models || [];
@@ -241,7 +282,7 @@
         options: {
           applyTransforms: true, normals: 'auto', uvs: 'on', expandInstances: true,
           materials: 'on', combine: true, format: format,
-          filter: { text: '', minKB: null, maxKB: null, include: chosen.map((m) => m.id) }
+          filter: { text: '', minKB: null, maxKB: null, include: chosen.map((m) => m.id), exclude: patterns }
         }
       }, 120000);
       if (!r || !r.ok) { log('erro: ' + (r && r.message)); return; }
@@ -269,6 +310,7 @@
       log(lines.join('\n'));
     };
 
+    renderPatterns();
     await refresh();
     setInterval(refresh, 3000);
   </script>

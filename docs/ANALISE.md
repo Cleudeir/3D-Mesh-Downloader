@@ -307,3 +307,58 @@ permissão `tabs`, `tab.url` chega vazio — e adicionar essa permissão mostrar
 A solução: o service worker pergunta às próprias content scripts o
 `location.href` delas (`chrome.tabs.sendMessage(tabId, {type: 'MDL_WHERE'})`).
 Nenhuma permissão extra, nenhuma leitura de histórico.
+
+---
+
+## Lista de exclusao por nome
+
+O popup tem uma **lista de exclusao**: padrões de nome que nunca entram no
+arquivo exportado. A lista fica salva em `chrome.storage.local`, então ela
+sobrevive ao fechar o popup e ao reiniciar o navegador — é o "lembrete" do que
+não deve ser capturado.
+
+Sintaxe (curinga, sem diferença de maiúsculas):
+
+| Padrão | Casa com |
+|---|---|
+| `X*` | `X`, `X_1`, `X_2`, `XY`, `XYZ`… (a família inteira) |
+| `X_*` | só os que exportam como `X_1`, `X_2` |
+| `X_1` | exatamente o segundo `X` |
+| `X?` | `X` + exatamente um caractere |
+| `cube` | só o modelo chamado `cube` (sem curinga = nome exato) |
+
+O padrão é testado contra **três nomes** de cada malha:
+
+1. o nome original (`X`);
+2. o nome que ela recebe no arquivo exportado (`X_1` — o sufixo `_1`, `_2`… é
+   adicionado quando vários modelos têm o mesmo nome);
+3. o nome de exportação sem o sufixo (`X`).
+
+Por isso `X*` apanha a família toda, e `X_1` permite tirar só um deles.
+
+### Como funciona no fluxo
+
+- O popup envia os padrões junto com o pedido de informação (`MDL_GET_INFO`).
+- A **página** marca cada modelo como excluído e devolve `excluded` e
+  `excludedBy` (qual padrão casou) — o popup não duplica a lógica de curinga.
+- A exclusão tem **prioridade sobre a seleção**: um modelo marcado como
+  excluído nunca entra no arquivo, mesmo que esteja marcado no checkbox.
+- Na lista do popup os excluídos aparecem esmaecidos e riscados, com o
+  checkbox desabilitado, e o botão `⊘` permite excluir rápido um modelo
+  (adicionando o nome exato à lista) ou desfazer (`↺`, removendo o padrão
+  que casou).
+
+### Caso real (Tripo3D)
+
+A cena do Tripo tem 68 malhas, das quais ~50 são gizmos do editor (`X`, `Y`,
+`Z`, `XY`, `XYZ`…) e o esqueleto. Com os padrões `X*`, `Y*`, `Z*` e
+`skeleton-*`:
+
+| | malhas | faces |
+|---|---|---|
+| sem exclusão | 68 | 352.853 |
+| com `X_*` + `skeleton-*` | 55 | 351.801 |
+| com `X*`, `Y*`, `Z*`, `skeleton-*` | **12** | 349.673 |
+
+O modelo principal (182.412 vértices) permanece intacto — o que muda é só o
+lixo de gizmo que ia junto no arquivo.

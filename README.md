@@ -53,6 +53,37 @@ pronto para upload no [Painel do Desenvolvedor](https://chrome.google.com/websto
 > A extensão só captura cenas **construídas depois** que ela é injetada. Se o contador
 > ficar em `0`, recarregue a página (F5).
 
+### Lista de exclusao
+
+Uma lista de padrões de nome que **nunca** entram no arquivo exportado. Ela fica
+salva em `chrome.storage.local`, então sobrevive ao fechar o popup e ao
+reiniciar o navegador — é o lembrete do que não deve ser capturado.
+
+| Padrão | Casa com |
+|---|---|
+| `X*` | `X`, `X_1`, `X_2`, `XY`, `XYZ`… (a família inteira) |
+| `X_*` | só os que exportam como `X_1`, `X_2` |
+| `X_1` | exatamente o segundo `X` |
+| `X?` | `X` + exatamente um caractere |
+| `cube` | só o modelo chamado `cube` (sem curinga = nome exato) |
+
+O padrão é testado contra o nome original da malha, o nome que ela recebe no
+arquivo exportado (`X_1`, quando vários modelos têm o mesmo nome) e esse
+nome sem o sufixo.
+
+Os excluídos aparecem esmaçados e riscados na lista, com o checkbox
+desabilitado; o botão `⊘` exclui um modelo rápido (adicionando o nome exato)
+e o `↺` desfaz. A exclusão tem **prioridade sobre a seleção**: um modelo
+excluído nunca entra no arquivo, mesmo que esteja marcado.
+
+No modelo real do Tripo (68 malhas, ~50 delas são gizmos do editor):
+
+| Padrões | malhas | faces |
+|---|---|---|
+| — | 68 | 352.853 |
+| `X_*`, `skeleton-*` | 55 | 351.801 |
+| `X*`, `Y*`, `Z*`, `skeleton-*` | **12** | 349.673 |
+
 ### Formatos de saída
 
 O seletor **Formato do arquivo** no popup escolhe o que é gravado:

@@ -645,7 +645,7 @@
   }
 
   /** Serializable description of a single mesh found in a scene. */
-  function describeModel(mesh, sceneInfo, sceneIndex, meshIndex) {
+  function describeModel(mesh, sceneInfo, sceneIndex, meshIndex, exportName) {
     var geometry = mesh.geometry;
     var position = geometry.attributes.position;
     var vertexCount = position ? position.count : 0;
@@ -660,6 +660,9 @@
     return {
       id: 's' + sceneIndex + '_m' + meshIndex,
       name: mesh.name || ('mesh_' + meshIndex),
+      // nome que o modelo recebe no arquivo exportado (pode ganhar sufixo
+      // _1, _2... quando varios modelos têm o mesmo nome)
+      exportName: exportName || mesh.name || ('mesh_' + meshIndex),
       scene: sceneInfo.name,
       mesh: mesh,
       vertexCount: vertexCount,
@@ -678,8 +681,10 @@
     var sceneIndex = 0;
     scenes.forEach(function (sceneInfo, scene) {
       var meshes = collectMeshes(scene);
+      var used = new Set();
       for (var meshIndex = 0; meshIndex < meshes.length; meshIndex++) {
-        models.push(describeModel(meshes[meshIndex], sceneInfo, sceneIndex, meshIndex));
+        var base = sanitizeName(meshes[meshIndex].name || 'mesh', 'mesh');
+        models.push(describeModel(meshes[meshIndex], sceneInfo, sceneIndex, meshIndex, uniqueName(base, used)));
       }
       sceneIndex++;
     });
@@ -706,6 +711,59 @@
     }
 
     return true;
+  }
+
+  /**
+   * Wildcard pattern -> RegExp.
+   *   *  any sequence of characters
+   *   ?  exactly one character
+   * Matching is case insensitive and anchored, so "X_*" matches "X_1" but not
+   * "XYZ", and "X*" matches the whole family "X", "X_1", "XYZ"...
+   */
+  function patternToRegExp(pattern) {
+    var escaped = String(pattern).replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    escaped = escaped.replace(/\*/g, '.*').replace(/\?/g, '.');
+    return new RegExp('^' + escaped + '$', 'i');
+  }
+
+  /**
+   * The exclusion pattern that matches this model, or null.
+   *
+   * Casa com tres nomes:
+   *   - o nome original da malha            ("X")
+   *   - o nome que ela recebe na exportacao  ("X_1")
+   *   - o nome de exportacao sem o sufixo    ("X")
+   *
+   * Assim da para escrever "X*" (a familia inteira), "X_1" (so o segundo) ou
+   * "X?" (X seguido de um caractere).
+   */
+  function exclusionMatch(model, patterns) {
+    if (!patterns || !patterns.length) return null;
+    var names = [String(model && model.name ? model.name : '')];
+    if (model && model.exportName && model.exportName !== model.name) {
+      names.push(String(model.exportName));
+      var base = String(model.exportName).replace(/_\d+$/, '');
+      if (base && base !== model.exportName) names.push(base);
+    }
+    for (var i = 0; i < patterns.length; i++) {
+      var pattern = String(patterns[i] || '').trim();
+      if (!pattern) continue;
+      var regex;
+      try {
+        regex = patternToRegExp(pattern);
+      } catch (e) {
+        continue;
+      }
+      for (var n = 0; n < names.length; n++) {
+        if (regex.test(names[n])) return pattern;
+      }
+    }
+    return null;
+  }
+
+  /** Is the model name matched by any exclusion pattern? */
+  function isExcluded(model, patterns) {
+    return exclusionMatch(model, patterns) !== null;
   }
 
   // ---------------------------------------------------------------------------
@@ -1148,6 +1206,8 @@
 
       // explicit selection (the popup checkboxes)
       if (include && !include.has(model.id)) return;
+      // exclusion list (the "nao deve ser capturado" patterns)
+      if (isExcluded(model, filter.exclude)) return;
       // text / size filter
       if (!matchesFilter(model, filter, options.format)) return;
 
@@ -1205,6 +1265,11 @@
       if (f.minKB !== undefined && f.minKB !== null && f.minKB !== '') opts.filter.minKB = Number(f.minKB);
       if (f.maxKB !== undefined && f.maxKB !== null && f.maxKB !== '') opts.filter.maxKB = Number(f.maxKB);
       if (Array.isArray(f.include)) opts.filter.include = f.include.slice();
+      if (Array.isArray(f.exclude)) {
+        opts.filter.exclude = f.exclude
+          .map(function (p) { return String(p || '').trim(); })
+          .filter(function (p) { return p.length > 0; });
+      }
     }
 
     if (raw.format === 'stl' || raw.format === 'stl-ascii' || raw.format === 'obj') {
@@ -1214,7 +1279,7 @@
     return opts;
   }
 
-  function sceneInfo() {
+  function sceneInfo(excludePatterns) {
     var list = [];
     var models = collectModels();
 
@@ -1228,10 +1293,14 @@
     });
 
     // only plain data goes through postMessage (structured clone)
+    var excludedCount = 0;
     var modelList = models.map(function (m) {
+      var excludedBy = exclusionMatch(m, excludePatterns);
+      if (excludedBy) excludedCount++;
       return {
         id: m.id,
         name: m.name,
+        exportName: m.exportName,
         scene: m.scene,
         vertexCount: m.vertexCount,
         faceCount: m.faceCount,
@@ -1239,6 +1308,8 @@
         materials: m.materials,
         sizeBytes: m.sizeBytes,
         sizes: m.sizes,
+        excluded: !!excludedBy,
+        excludedBy: excludedBy || null,
         bounds: m.bounds
       };
     });
@@ -1246,6 +1317,8 @@
     return {
       sceneCount: scenes.size,
       count: models.length,
+      excludedCount: excludedCount,
+      exportableCount: models.length - excludedCount,
       scenes: list,
       models: modelList,
       totalSizeBytes: modelList.reduce(function (acc, m) { return acc + m.sizeBytes; }, 0)
@@ -1402,7 +1475,7 @@
     if (!data || typeof data !== 'object') return;
 
     if (data.type === 'MDL_GET_INFO') {
-      var info = sceneInfo();
+      var info = sceneInfo(data.exclude);
       reply({ type: 'MDL_INFO', info: info, version: VERSION });
     } else if (data.type === 'MDL_DOWNLOAD') {
       var result;

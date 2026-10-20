@@ -34,13 +34,91 @@
     optNormalsRow: document.getElementById('optNormalsRow'),
     optUvsRow: document.getElementById('optUvsRow'),
     optMaterialsRow: document.getElementById('optMaterialsRow'),
-    combineLabel: document.getElementById('combineLabel')
+    combineLabel: document.getElementById('combineLabel'),
+    excludeInput: document.getElementById('excludeInput'),
+    addExclude: document.getElementById('addExclude'),
+    clearExclude: document.getElementById('clearExclude'),
+    patternList: document.getElementById('patternList')
   };
 
   var models = [];            // descriptors coming from the page
   var selection = new Set();  // ids the user wants to export
+  var excludePatterns = [];   // names that must never be captured
   var pollTimer = null;
   var lastSignature = '';
+
+  var STORAGE_KEY = 'excludePatterns';
+
+  // ---------------------------------------------------------------------------
+  // Lista de exclusao (persistida)
+  // ---------------------------------------------------------------------------
+
+  function loadPatterns(callback) {
+    try {
+      chrome.storage.local.get({ [STORAGE_KEY]: [] }, function (items) {
+        var stored = items && items[STORAGE_KEY];
+        excludePatterns = Array.isArray(stored) ? stored.slice() : [];
+        callback();
+      });
+    } catch (e) {
+      callback();
+    }
+  }
+
+  function savePatterns() {
+    try {
+      chrome.storage.local.set({ [STORAGE_KEY]: excludePatterns });
+    } catch (e) {
+      /* storage indisponivel: a lista continua valendo na sessao */
+    }
+  }
+
+  function addPattern(pattern) {
+    var p = String(pattern || '').trim();
+    if (!p) return;
+    if (excludePatterns.indexOf(p) !== -1) return;
+    excludePatterns.push(p);
+    savePatterns();
+    renderPatterns();
+    requestInfo();
+  }
+
+  function removePattern(pattern) {
+    var i = excludePatterns.indexOf(pattern);
+    if (i === -1) return;
+    excludePatterns.splice(i, 1);
+    savePatterns();
+    renderPatterns();
+    requestInfo();
+  }
+
+  function renderPatterns() {
+    els.patternList.textContent = '';
+    if (!excludePatterns.length) {
+      var none = document.createElement('span');
+      none.className = 'no-patterns';
+      none.textContent = 'nenhum padrao';
+      els.patternList.appendChild(none);
+      return;
+    }
+    excludePatterns.forEach(function (pattern) {
+      var chip = document.createElement('span');
+      chip.className = 'pattern';
+
+      var label = document.createElement('span');
+      label.textContent = pattern;
+
+      var x = document.createElement('button');
+      x.type = 'button';
+      x.textContent = '\u00d7';
+      x.title = 'remover padrao';
+      x.addEventListener('click', function () { removePattern(pattern); });
+
+      chip.appendChild(label);
+      chip.appendChild(x);
+      els.patternList.appendChild(chip);
+    });
+  }
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -115,7 +193,9 @@
   }
 
   function selectedVisibleModels() {
-    return visibleModels().filter(function (m) { return selection.has(m.id); });
+    return visibleModels().filter(function (m) {
+      return selection.has(m.id) && !m.excluded;
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -143,7 +223,10 @@
     });
 
     els.count.textContent = info.count || 0;
-    els.label.textContent = info.count === 1 ? 'malha encontrada' : 'malhas encontradas';
+    var excluded = info.excludedCount || 0;
+    els.label.textContent = excluded
+      ? 'malhas encontradas · ' + excluded + ' excluída(s)'
+      : (info.count === 1 ? 'malha encontrada' : 'malhas encontradas');
 
     renderList();
     updateSelectionPill();
@@ -174,10 +257,12 @@
     visible.forEach(function (model) {
       var label = document.createElement('label');
       label.title = model.name + ' - cena: ' + (model.scene || '?');
+      if (model.excluded) label.classList.add('excluded');
 
       var box = document.createElement('input');
       box.type = 'checkbox';
-      box.checked = selection.has(model.id);
+      box.checked = !model.excluded && selection.has(model.id);
+      box.disabled = !!model.excluded;
       box.addEventListener('change', function () {
         if (box.checked) selection.add(model.id);
         else selection.delete(model.id);
@@ -195,9 +280,28 @@
       bits.push('~' + fmtSize(sizeForFormat(model, currentFormat())));
       meta.textContent = bits.join(' · ');
 
+      // botao de exclusao rapida: alterna o modelo na lista de exclusao
+      var excl = document.createElement('button');
+      excl.type = 'button';
+      excl.className = 'excl';
+      excl.textContent = model.excluded ? '\u21ba' : '\u2298';
+      excl.title = model.excluded
+        ? 'remover da lista de exclusao (' + model.excludedBy + ')'
+        : 'nao exportar este modelo';
+      excl.addEventListener('click', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (model.excluded) {
+          if (model.excludedBy) removePattern(model.excludedBy);
+        } else {
+          addPattern(model.name);
+        }
+      });
+
       label.appendChild(box);
       label.appendChild(name);
       label.appendChild(meta);
+      label.appendChild(excl);
       els.list.appendChild(label);
     });
 
@@ -277,7 +381,7 @@
         showStatus('Nao foi possivel acessar a aba ativa.', 'err');
         return;
       }
-      chrome.tabs.sendMessage(tabId, { type: 'MDL_GET_INFO' }, function () {
+      chrome.tabs.sendMessage(tabId, { type: 'MDL_GET_INFO', exclude: excludePatterns }, function () {
         if (chrome.runtime.lastError) {
           els.count.textContent = '-';
           els.download.disabled = true;
@@ -301,7 +405,8 @@
         text: filter.text,
         minKB: filter.minKB,
         maxKB: filter.maxKB,
-        include: selectedVisibleModels().map(function (m) { return m.id; })
+        include: selectedVisibleModels().map(function (m) { return m.id; }),
+        exclude: excludePatterns.slice()
       }
     };
   }
@@ -401,7 +506,7 @@
   els.filterMaxKB.addEventListener('input', onFilterChange);
 
   els.selectAll.addEventListener('click', function () {
-    visibleModels().forEach(function (m) { selection.add(m.id); });
+    visibleModels().forEach(function (m) { if (!m.excluded) selection.add(m.id); });
     renderList();
     updateSelectionPill();
   });
@@ -414,9 +519,33 @@
 
   els.selectVisible.addEventListener('click', function () {
     selection.clear();
-    visibleModels().forEach(function (m) { selection.add(m.id); });
+    visibleModels().forEach(function (m) { if (!m.excluded) selection.add(m.id); });
     renderList();
     updateSelectionPill();
+  });
+
+  // --- lista de exclusao ----------------------------------------------------
+  function addFromInput() {
+    var value = els.excludeInput.value;
+    if (!value.trim()) return;
+    addPattern(value);
+    els.excludeInput.value = '';
+    els.excludeInput.focus();
+  }
+
+  els.addExclude.addEventListener('click', addFromInput);
+  els.excludeInput.addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      addFromInput();
+    }
+  });
+  els.clearExclude.addEventListener('click', function () {
+    if (!excludePatterns.length) return;
+    excludePatterns = [];
+    savePatterns();
+    renderPatterns();
+    requestInfo();
   });
 
   // Poll while the popup stays open so the count follows the page.
@@ -427,5 +556,8 @@
   });
 
   applyFormatToOptions();
-  requestInfo();
+  loadPatterns(function () {
+    renderPatterns();
+    requestInfo();
+  });
 })();

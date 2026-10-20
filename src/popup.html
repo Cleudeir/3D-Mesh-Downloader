@@ -96,6 +96,66 @@
     }
     .quick button:hover { color: var(--text); border-color: var(--accent); }
 
+    /* ---------- lista de exclusao ---------- */
+    .exclude {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+    .exclude-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .exclude-head .link {
+      width: auto;
+      padding: 0;
+      background: none;
+      border: 0;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 500;
+      text-decoration: underline;
+    }
+    .exclude-head .link:hover { color: var(--err); }
+    button.tiny {
+      width: auto;
+      padding: 5px 9px;
+      font-size: 11px;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--text);
+      flex: none;
+    }
+    button.tiny:hover { border-color: var(--accent); color: var(--accent); }
+    .patterns { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+    .pattern {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: color-mix(in srgb, var(--err) 16%, transparent);
+      border: 1px solid color-mix(in srgb, var(--err) 35%, transparent);
+      color: var(--text);
+      border-radius: 20px;
+      padding: 2px 4px 2px 9px;
+    }
+    .pattern button {
+      width: auto;
+      padding: 0 4px;
+      background: none;
+      border: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1;
+    }
+    .pattern button:hover { color: var(--err); }
+    .no-patterns { color: var(--muted); font-size: 11px; }
+
     /* ---------- lista de modelos ---------- */
     .models {
       margin-top: 9px;
@@ -122,6 +182,22 @@
       font-size: 12px;
     }
     .mmeta { color: var(--muted); font-size: 10.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .excl {
+      flex: none;
+      width: 17px; height: 17px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1;
+      padding: 0;
+      cursor: pointer;
+    }
+    .excl:hover { border-color: var(--err); color: var(--err); }
+    .models label.excluded { opacity: .45; cursor: default; }
+    .models label.excluded .mname { text-decoration: line-through; }
+    .models label.excluded .excl { border-color: var(--err); color: var(--err); }
     .empty { color: var(--muted); font-size: 12px; padding: 8px 2px; }
 
     details { margin-top: 10px; }
@@ -206,6 +282,23 @@
         <button type="button" id="selectNone">Nenhum</button>
         <button type="button" id="selectVisible">So os visiveis</button>
       </div>
+    </div>
+
+    <div class="exclude">
+      <div class="exclude-head">
+        <span>Lista de exclusao</span>
+        <button type="button" id="clearExclude" class="link">limpar</button>
+      </div>
+      <div class="filter-row" style="margin-top:5px;">
+        <input type="text" id="excludeInput" placeholder="ex.: X_*  ou  skeleton-*" autocomplete="off">
+        <button type="button" id="addExclude" class="tiny">Add</button>
+      </div>
+      <div class="patterns" id="patternList"></div>
+      <p class="hint" style="margin:5px 0 0;">
+        <code>*</code> = qualquer trecho &middot; <code>?</code> = um caractere.<br>
+        <code>X*</code> pega a familia toda (X, X_1, XY) &middot; <code>X_1</code> pega so o segundo.<br>
+        A lista fica salva no navegador, entre sessoes.
+      </p>
     </div>
 
     <div class="models" id="modelList">

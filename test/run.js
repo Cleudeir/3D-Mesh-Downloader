@@ -484,6 +484,98 @@ section('14. Exportacao STL');
   eq('triangulos degenerados foram removidos (7 faces - 1 degenerada)', triangles, 6);
 }
 
+
+
+// ---------------------------------------------------------------------------
+section('15. Lista de exclusao por nome');
+{
+  // nomes do mock: s0_m0=cube, s0_m1=flat, s0_m2=instances, s0_m3=skinned, s0_m4=emptyInstances
+  const { env } = setup();
+  const replies = env.request({ type: 'MDL_GET_INFO', exclude: ['flat*', 'instances*'] });
+  const info = replies.find((m) => m.type === 'MDL_INFO').info;
+
+  const excluded = info.models.filter((m) => m.excluded);
+  eq('2 modelos excluidos pelos padroes', excluded.length, 2);
+  check('o padrao que exclui cada um volta junto',
+    excluded.every((m) => m.excludedBy === 'flat*' || m.excludedBy === 'instances*'),
+    excluded.map((m) => m.name + ':' + m.excludedBy).join(','));
+  eq('o total continua contando tudo', info.count, 5);
+  eq('mas o exportavel ja desconta', info.exportableCount, 3);
+  eq('e o contador de excluidas bate', info.excludedCount, 2);
+}
+{
+  // a lista de exclusao realmente tira o modelo do arquivo
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { exclude: ['flat*', 'instances*'] }
+  });
+  const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2)).sort();
+  eq('so os modelos nao excluidos vao para o arquivo', objects.join(','), 'cube,emptyInstances,skinned');
+}
+{
+  // wildcard: o ? casa exatamente um caractere
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { exclude: ['c?be'] }
+  });
+  const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2)).sort();
+  eq('o ? casa exatamente um caractere', objects.join(','), 'emptyInstances,flat,instances_inst0,instances_inst1,skinned');
+}
+{
+  // pattern sem wildcard = nome exato
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { exclude: ['cube'] }
+  });
+  const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2)).sort();
+  eq('padrao exato tira so o modelo com esse nome', objects.join(','), 'emptyInstances,flat,instances_inst0,instances_inst1,skinned');
+}
+{
+  // a exclusao tem prioridade sobre a selecao explicita
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { include: ['s0_m0', 's0_m1'], exclude: ['cube'] }
+  });
+  const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2));
+  eq('excluido nao entra nem se estiver marcado', objects.join(','), 'flat');
+}
+{
+  // prefixo com * cobre o modelo e todas as suas instancias
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { exclude: ['inst*'] }
+  });
+  const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2)).sort();
+  eq('o prefixo leva as instancias junto', objects.join(','), 'cube,emptyInstances,flat,skinned');
+}
+{
+  // padrao invalido nao quebra a exportacao
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { exclude: ['[', '(', '\\'] }
+  });
+  check('padroes invalidos sao ignorados', out.result && out.result.ok, JSON.stringify(out.result));
+}
+{
+  // a lista tambem vale no modo STL
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, format: 'stl',
+    filter: { exclude: ['flat*', 'instances*'] }
+  });
+  const buf = out.files[0].buffer;
+  const view = new DataView(buf, 0, buf.byteLength);
+  const triangles = view.getUint32(80, true);
+  // cube 2 + skinned 1 (degenerada, descartada) + emptyInstances 1 = 3
+  eq('no STL tambem vale a exclusao', triangles, 3);
+}
+
 // ---------------------------------------------------------------------------
 console.log('\n' + '-'.repeat(58));
 console.log('  ' + passed + ' passed, ' + failed + ' failed');

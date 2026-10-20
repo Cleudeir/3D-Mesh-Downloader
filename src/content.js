@@ -63,7 +63,7 @@
     if (!request || typeof request !== 'object') return false;
 
     if (request.type === 'MDL_GET_INFO') {
-      window.postMessage({ type: 'MDL_GET_INFO' }, '*');
+      window.postMessage({ type: 'MDL_GET_INFO', exclude: request.exclude || [] }, '*');
       sendResponse({ status: 'requested' });
       return true;
     }
@@ -93,7 +93,13 @@
       materials: 'on',
       combine: params.get('combine') !== '0',
       format: params.get('format') || 'obj',
-      filter: { text: params.get('text') || '', minKB: null, maxKB: null, include: null }
+      filter: {
+        text: params.get('text') || '',
+        minKB: null,
+        maxKB: null,
+        include: null,
+        exclude: params.getAll('exclude').filter(Boolean)
+      }
     };
     if (params.get('min')) options.filter.minKB = Number(params.get('min'));
     if (params.get('max')) options.filter.maxKB = Number(params.get('max'));
