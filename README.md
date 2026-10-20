@@ -195,8 +195,19 @@ Nos três casos o primeiro vértice sai em `(8, 22, 32)` - o valor correto para
 `BoxGeometry(2,2,2)` com `position (10,20,30)`, `rotation.z = 90°` e `scale 2`,
 confirmando a aplicação da `matrixWorld`.
 
-### Teste em navegador real (Chrome + CDP)
+### Pagina de demonstracao local
 
+`test/demo.html` monta uma cena com 9 modelos de nomes e tamanhos diferentes
+(caixa, esfera, toro, cilindro, cone, toro-nó detalhado, icosaedro, plano e uma
+grade de 40 instancias) e traz um painel com os mesmos filtros do popup, para
+testar offline sem depender de nenhum site:
+
+```bash
+npm run test:browser
+# abre http://127.0.0.1:8731/test/demo.html
+```
+
+### Teste em navegador real (Chrome + CDP)
 O `tools/` traz um cliente CDP próprio (`tools/cdp.js`), sem dependências, para
 dirigir um Chrome real:
 

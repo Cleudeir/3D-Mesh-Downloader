@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>3D Mesh Downloader - demo com varios modelos</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      height: 100vh;
+      font: 13px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #12141a; color: #e8eaf0;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+    aside {
+      padding: 14px; overflow-y: auto;
+      background: #1a1d25; border-left: 1px solid #2b303c;
+    }
+    h1 { font-size: 15px; margin-bottom: 4px; }
+    p.sub { color: #9aa2b1; font-size: 11px; margin-bottom: 12px; }
+    .row { display: flex; gap: 6px; margin-bottom: 8px; }
+    input[type=search], input[type=number] {
+      font: inherit; font-size: 12px; color: inherit;
+      background: #12141a; border: 1px solid #2b303c; border-radius: 6px; padding: 6px 8px; min-width: 0;
+    }
+    input[type=search] { flex: 1; }
+    input[type=number] { width: 66px; }
+    button {
+      font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+      border: 0; border-radius: 7px; padding: 8px 10px; background: #5b6cff; color: #fff;
+    }
+    button.ghost { background: transparent; border: 1px solid #2b303c; color: #9aa2b1; font-weight: 500; }
+    #models { margin: 10px 0; max-height: 46vh; overflow-y: auto; }
+    #models label {
+      display: flex; align-items: center; gap: 7px; padding: 3px 4px;
+      border-radius: 5px; cursor: pointer; font-size: 12px;
+    }
+    #models label:hover { background: #232841; }
+    #models input { accent-color: #5b6cff; }
+    .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .m { color: #9aa2b1; font-size: 10.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    #out { white-space: pre-wrap; font-size: 11px; color: #9aa2b1; background: #12141a;
+           border: 1px solid #2b303c; border-radius: 7px; padding: 9px; max-height: 24vh; overflow: auto; }
+    .pill { display: inline-block; background: #232841; color: #9aa2b1; border-radius: 20px;
+            padding: 2px 9px; font-size: 11px; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <aside>
+    <h1>3D Mesh Downloader - demo</h1>
+    <p class="sub">Varios modelos na mesma cena, com nomes e tamanhos diferentes.
+      Use os filtros e clique em exportar.</p>
+
+    <div class="pill" id="pill">0 malhas</div>
+
+    <div class="row">
+      <input type="search" id="text" placeholder="filtrar por nome...">
+      <input type="number" id="min" placeholder="min KB" min="0">
+      <input type="number" id="max" placeholder="max KB" min="0">
+    </div>
+    <div class="row">
+      <button id="export">Exportar</button>
+      <button class="ghost" id="all">Todos</button>
+      <button class="ghost" id="none">Nenhum</button>
+    </div>
+
+    <div id="models"></div>
+    <div id="out">pronto</div>
+  </aside>
+
+  <!-- a extensao entra antes do three.js, como em document_start / world: MAIN -->
+  <script src="../src/injected.js"></script>
+
+  <script type="module">
+    const out = document.getElementById('out');
+    const log = (...a) => { out.textContent = a.join('\n'); };
+
+    // ---- intercepta os downloads para inspecionar o OBJ --------------------
+    window.__blobs = [];
+    const origCreate = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (blob) => { const u = origCreate(blob); window.__blobs.push({ u, blob, name: null }); return u; };
+    const origClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      if (this.download) { const e = window.__blobs.find((b) => b.u === this.href); if (e) e.name = this.download; return; }
+      return origClick.call(this);
+    };
+
+    const THREE = await import('https://unpkg.com/three@0.180.0/build/three.module.js');
+
+    // ---- cena com varios modelos de tamanhos e nomes distintos -------------
+    const scene = new THREE.Scene();
+    scene.name = 'DemoScene';
+
+    // luzes: MeshStandardMaterial sem luz renderiza preto
+    scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+    const key = new THREE.DirectionalLight(0xffffff, 2.2);
+    key.position.set(4, 8, 6);
+    scene.add(key);
+    const rim = new THREE.DirectionalLight(0x88aaff, 1.2);
+    rim.position.set(-6, 3, -6);
+    scene.add(rim);
+    scene.add(new THREE.HemisphereLight(0x223344, 0x101014, 0.8));
+
+    const mk = (name, geo, color, x, y, z, scale) => {
+      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ name, color }));
+      m.name = name; m.position.set(x, y, z); m.scale.setScalar(scale);
+      scene.add(m);
+      return m;
+    };
+
+    mk('caixa_pequena', new THREE.BoxGeometry(1, 1, 1), 0xff5533, -4, 0, 0, 1);
+    mk('esfera_media', new THREE.SphereGeometry(1, 32, 16), 0x33aaff, -1.5, 0, 0, 1);
+    mk('toro_grande', new THREE.TorusGeometry(1.4, 0.5, 24, 48), 0x55dd66, 1.5, 0, 0, 1.2);
+    mk('cilindro', new THREE.CylinderGeometry(0.8, 0.8, 2.2, 24), 0xffcc33, 4, 0, 0, 1);
+    mk('cone', new THREE.ConeGeometry(0.9, 2.4, 24), 0xcc66ff, 6.5, 0, 0, 1);
+    mk('knot_detalhado', new THREE.TorusKnotGeometry(1, 0.32, 220, 32), 0xffffff, 0, 0, -3.5, 1);
+    mk('icosaedro', new THREE.IcosahedronGeometry(0.9, 0), 0xff8844, 3, 0, -3.5, 1);
+    mk('plano', new THREE.PlaneGeometry(3, 3, 1, 1), 0x4488ff, -3, 0, -3.5, 1);
+
+    // um InstancedMesh: 40 caixas
+    const inst = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.25, 0.25, 0.25),
+      new THREE.MeshStandardMaterial({ name: 'Instanciada', color: 0x66ffcc }),
+      40
+    );
+    inst.name = 'grade_instancias';
+    const m4 = new THREE.Matrix4();
+    for (let i = 0; i < 40; i++) {
+      m4.makeTranslation(-2 + (i % 8) * 0.6, 1.6, -2 + Math.floor(i / 8) * 0.6);
+      inst.setMatrixAt(i, m4);
+    }
+    scene.add(inst);
+
+    // ---- renderiza (o renderer dispara 'observe') --------------------------
+    const canvas = document.getElementById('c');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+
+    const resize = () => {
+      const w = canvas.clientWidth || canvas.parentElement.clientWidth || 800;
+      const h = canvas.clientHeight || canvas.parentElement.clientHeight || 600;
+      renderer.setSize(w, h, false);
+    };
+    resize();
+    new ResizeObserver(resize).observe(canvas);
+
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+    camera.position.set(0, 3, 12);
+    camera.lookAt(0, 0, -1);
+
+    let t = 0;
+    const loop = () => {
+      t += 0.01;
+      scene.rotation.y = t;
+      camera.aspect = (canvas.clientWidth || 1) / (canvas.clientHeight || 1);
+      camera.updateProjectionMatrix();
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    };
+    loop();
+
+    // ---- painel: mesma logica de filtro do popup ---------------------------
+    const listEl = document.getElementById('models');
+    const pillEl = document.getElementById('pill');
+    let models = [], selection = new Set();
+
+    const ask = (type, payload, timeout) => new Promise((resolve) => {
+      const h = (ev) => {
+        if (ev.data && ev.data.type === type) { window.removeEventListener('message', h); resolve(ev.data[type === 'MDL_INFO' ? 'info' : 'result']); }
+      };
+      window.addEventListener('message', h);
+      window.postMessage(payload, '*');
+      setTimeout(() => resolve(null), timeout);
+    });
+
+    const fmt = (b) => b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
+
+    function filter() {
+      const text = document.getElementById('text').value.trim().toLowerCase();
+      const min = document.getElementById('min').value === '' ? null : Number(document.getElementById('min').value) * 1024;
+      const max = document.getElementById('max').value === '' ? null : Number(document.getElementById('max').value) * 1024;
+      return models.filter((m) => {
+        const hay = (m.name + ' ' + m.scene + ' ' + (m.materials || []).join(' ')).toLowerCase();
+        if (text && !hay.includes(text)) return false;
+        if (min !== null && m.sizeBytes < min) return false;
+        if (max !== null && m.sizeBytes > max) return false;
+        return true;
+      });
+    }
+
+    function render() {
+      const visible = filter();
+      listEl.textContent = '';
+      visible.forEach((m) => {
+        const label = document.createElement('label');
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = selection.has(m.id);
+        box.onchange = () => { box.checked ? selection.add(m.id) : selection.delete(m.id); render(); };
+        const n = document.createElement('span'); n.className = 'n'; n.textContent = m.name;
+        const meta = document.createElement('span'); meta.className = 'm';
+        meta.textContent = `${m.vertexCount}v · ${m.faceCount}f · ~${fmt(m.sizeBytes)}`;
+        label.append(box, n, meta);
+        listEl.appendChild(label);
+      });
+      const chosen = visible.filter((m) => selection.has(m.id));
+      pillEl.textContent = `${chosen.length}/${visible.length} visiveis · ${models.length} no total`;
+    }
+
+    async function refresh() {
+      const info = await ask('MDL_INFO', { type: 'MDL_GET_INFO' }, 6000);
+      if (!info) { log('sem resposta da pagina'); return; }
+      const known = new Set(models.map((m) => m.id));
+      models = info.models || [];
+      models.forEach((m) => { if (!known.has(m.id)) selection.add(m.id); });
+      render();
+    }
+
+    document.getElementById('text').oninput = render;
+    document.getElementById('min').oninput = render;
+    document.getElementById('max').oninput = render;
+    document.getElementById('all').onclick = () => { filter().forEach((m) => selection.add(m.id)); render(); };
+    document.getElementById('none').onclick = () => { filter().forEach((m) => selection.delete(m.id)); render(); };
+
+    document.getElementById('export').onclick = async () => {
+      const chosen = filter().filter((m) => selection.has(m.id));
+      if (!chosen.length) { log('nenhuma malha selecionada'); return; }
+      const r = await ask('MDL_RESULT', {
+        type: 'MDL_DOWNLOAD',
+        options: {
+          applyTransforms: true, normals: 'auto', uvs: 'on', expandInstances: true,
+          materials: 'on', combine: true,
+          filter: { text: '', minKB: null, maxKB: null, include: chosen.map((m) => m.id) }
+        }
+      }, 120000);
+      if (!r || !r.ok) { log('erro: ' + (r && r.message)); return; }
+      const lines = ['exportado: ' + r.files.join(', '),
+        `malhas: ${r.stats.meshes} · vertices: ${r.stats.vertices} · faces: ${r.stats.faces} · materiais: ${r.stats.materials}`];
+      for (const e of window.__blobs) {
+        const text = await e.blob.text();
+        lines.push('', '--- ' + e.name + ' (' + text.length + ' bytes) ---');
+        lines.push(text.split('\n').slice(0, 8).join('\n'));
+      }
+      log(lines.join('\n'));
+    };
+
+    await refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>
