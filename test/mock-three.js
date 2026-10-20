@@ -71,6 +71,20 @@ function matrix4(elements) {
   return { elements: elements, isMatrix4: true };
 }
 
+/**
+ * Mimics three.js Color: the components are the working (linear) values, but
+ * getHexString('srgb') converts back to sRGB like the real thing does.
+ */
+function color(r, g, b) {
+  const toHex = (v) => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, '0');
+  return {
+    r: r,
+    g: g,
+    b: b,
+    getHexString: () => toHex(r) + toHex(g) + toHex(b)
+  };
+}
+
 function object3d(name, options) {
   options = options || {};
   var pos = options.position || { x: 0, y: 0, z: 0 };
@@ -143,7 +157,7 @@ function buildMockScene() {
   var cubeMaterial = {
     id: 7,
     name: 'Pintura Vermelha',
-    color: { r: 1, g: 0.25, b: 0.25 },
+    color: color(1, 0.25, 0.5),
     roughness: 0.4,
     metalness: 0,
     map: { image: { src: 'https://example.com/texture.png' } }
@@ -163,7 +177,7 @@ function buildMockScene() {
     index: indexAttribute([0, 1, 2]),
     groups: []
   };
-  var flat = mesh('flat', flatGeometry, { id: 8, name: 'Sem Normal', color: { r: 0.2, g: 0.4, b: 0.9 } });
+  var flat = mesh('flat', flatGeometry, { id: 8, name: 'Sem Normal', color: { r: 0.5, g: 0.5, b: 0.5 } });
 
   var group = object3d('group', { children: [flat] });
 
@@ -176,7 +190,7 @@ function buildMockScene() {
     index: indexAttribute([0, 1, 2]),
     groups: []
   };
-  var instances = mesh('instances', instanceGeometry, { id: 9, name: 'Instancia', color: { r: 1, g: 1, b: 1 } });
+  var instances = mesh('instances', instanceGeometry, { id: 9, name: 'Instancia', color: color(1, 1, 1) });
   instances.isInstancedMesh = true;
   instances.instanceMatrix = {
     count: 2,
@@ -197,7 +211,7 @@ function buildMockScene() {
     index: indexAttribute([0, 1, 0]),
     groups: []
   };
-  var skinned = mesh('skinned', skinnedGeometry, { id: 10, name: 'Esqueleto', color: { r: 0.5, g: 0.5, b: 0.5 } });
+  var skinned = mesh('skinned', skinnedGeometry, { id: 10, name: 'Esqueleto', color: color(0.5, 0.5, 0.5) });
   skinned.isSkinnedMesh = true;
   skinned.bindMatrix = matrix4([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
   skinned.bindMatrixInverse = matrix4([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);

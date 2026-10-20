@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>3D Mesh Downloader - teste de integracao</title>
+
+  <!--
+    Simula o ambiente real da extensao:
+      1. o script e injetado ANTES do three.js (como document_start / world: MAIN)
+      2. o three.js e carregado como modulo ES (build divided em r167+)
+      3. a pagina intercepta os downloads para inspecionar o OBJ gerado
+
+    Use ?v=0.180.0 para escolher a versao do three.js.
+  -->
+  <script>
+    // ---- intercepta os downloads (o teste nao deve gravar nada) ----------
+    window.__captured = [];
+    const origCreateObjectURL = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = function (blob) {
+      const url = origCreateObjectURL(blob);
+      window.__captured.push({ url: url, blob: blob, name: null });
+      return url;
+    };
+    const origClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      if (this.download) {
+        const entry = window.__captured.find((c) => c.url === this.href);
+        if (entry) entry.name = this.download;
+        return; // nao baixa de verdade
+      }
+      return origClick.call(this);
+    };
+    window.__ready = false;
+    window.__error = null;
+  </script>
+
+  <!-- a "extensao" entra aqui, antes de qualquer script da pagina -->
+  <script src="../src/injected.js"></script>
+</head>
+<body>
+  <pre id="out">carregando...</pre>
+
+  <script type="module">
+    const version = new URLSearchParams(location.search).get('v') || '0.180.0';
+    const out = document.getElementById('out');
+    const log = [];
+
+    try {
+      const THREE = await import(`https://unpkg.com/three@${version}/build/three.module.js`);
+
+      // cena com transformacao, normais, uv e material
+      const scene = new THREE.Scene();
+      scene.name = 'TestScene';
+
+      const geometry = new THREE.BoxGeometry(2, 2, 2);
+      const material = new THREE.MeshStandardMaterial({
+        name: 'Vermelho', color: 0xff4020, roughness: 0.3
+      });
+
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = 'caixa';
+      mesh.position.set(10, 20, 30);
+      mesh.rotation.z = Math.PI / 2;
+      mesh.scale.setScalar(2);
+      scene.add(mesh);
+
+      // renderiza de verdade (o renderer dispara 'observe' com detail = renderer)
+      const renderer = new THREE.WebGLRenderer({ antialias: false });
+      renderer.setSize(64, 64);
+      const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+      camera.position.set(0, 0, 40);
+      renderer.render(scene, camera);
+
+      // a cena ja deve ter sido capturada pelo hook
+      const infoReply = await new Promise((resolve) => {
+        const handler = (ev) => {
+          if (ev.data && ev.data.type === 'MDL_INFO') {
+            window.removeEventListener('message', handler);
+            resolve(ev.data);
+          }
+        };
+        window.addEventListener('message', handler);
+        window.postMessage({ type: 'MDL_GET_INFO' }, '*');
+        setTimeout(() => resolve(null), 2000);
+      });
+
+      log.push(`three.js r${version}`);
+      log.push(`hook instaldo: ${!!window.__THREE_DEVTOOLS__}`);
+      log.push(`cenas capturadas: ${infoReply ? infoReply.info.sceneCount : 'n/a'}`);
+      log.push(`malhas capturadas: ${infoReply ? infoReply.info.count : 'n/a'}`);
+
+      // dispara a exportacao
+      const result = await new Promise((resolve) => {
+        const handler = (ev) => {
+          if (ev.data && ev.data.type === 'MDL_RESULT') {
+            window.removeEventListener('message', handler);
+            resolve(ev.data.result);
+          }
+        };
+        window.addEventListener('message', handler);
+        window.postMessage({
+          type: 'MDL_DOWNLOAD',
+          options: { applyTransforms: true, normals: 'auto', uvs: 'on', materials: 'on', combine: true }
+        }, '*');
+        setTimeout(() => resolve(null), 3000);
+      });
+
+      log.push(`exportacao ok: ${result ? result.ok : 'n/a'}`);
+      log.push(`arquivos: ${result && result.files ? result.files.join(', ') : 'n/a'}`);
+
+      for (const entry of window.__captured) {
+        const text = await entry.blob.text();
+        const lines = text.split('\n');
+        const vertices = lines.filter((l) => l.startsWith('v '));
+        const normals = lines.filter((l) => l.startsWith('vn '));
+        const uvs = lines.filter((l) => l.startsWith('vt '));
+        const faces = lines.filter((l) => l.startsWith('f '));
+        log.push('');
+        log.push(`--- ${entry.name} ---`);
+        log.push(`vertices: ${vertices.length}  normais: ${normals.length}  uvs: ${uvs.length}  faces: ${faces.length}`);
+        log.push(`primeiro vertice: ${vertices[0]}`);
+        log.push(`ultimo vertice:   ${vertices[vertices.length - 1]}`);
+        if (entry.name.endsWith('.mtl')) {
+          log.push('--- mtl ---');
+          log.push(text.split('\n').filter((l) => l.trim()).join('\n'));
+        }
+      }
+
+      window.__result = { ok: true, log: log.join('\n') };
+    } catch (e) {
+      window.__error = String(e && e.stack ? e.stack : e);
+      window.__result = { ok: false, log: log.join('\n'), error: window.__error };
+    }
+
+    out.textContent = window.__result.log;
+    window.__ready = true;
+  </script>
+</body>
+</html>

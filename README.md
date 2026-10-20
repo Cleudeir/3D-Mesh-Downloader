@@ -118,6 +118,7 @@ Isso mantém a extensão funcionando em qualquer versão do three.js, inclusive 
 | Normais | não exporta | exporta `vn`; calcula planar quando falta |
 | UVs | não exporta | exporta `vt` |
 | Materiais | não exporta | gera `.mtl` com cor, rugosidade, metalicidade e textura |
+| Espaço de cor | — | converte de linear (padrão do three.js) para **sRGB** no `.mtl` |
 | `InstancedMesh` | exporta só a geometria base | expande uma malha por instância |
 | `SkinnedMesh` | exporta pose bind | exporta a pose deformada (skinning) |
 | Nº de downloads | 1 por malha (Chrome corta ~10) | 1 `.obj` + 1 `.mtl` |
@@ -128,6 +129,8 @@ Isso mantém a extensão funcionando em qualquer versão do three.js, inclusive 
 ---
 
 ## Testes
+
+### Unitários (Node)
 
 ```bash
 npm test
@@ -141,8 +144,31 @@ UVs, expansão de instâncias, skinning, materiais, modo por-malha, índices das
 e robustez (página sem cena, página que define o próprio `__THREE_DEVTOOLS__`).
 
 ```
-44 passed, 0 failed
+45 passed, 0 failed
 ```
+
+### Integração (navegador real)
+
+```bash
+npm run test:browser
+```
+
+Abre `http://127.0.0.1:8731/test/browser-check.html?v=0.180.0`. A página carrega o
+**three.js de verdade** do CDN, injeta o `src/injected.js` **antes** dele (como a
+extensão faz em `document_start` / `world: MAIN`) e intercepta os downloads para
+inspecionar o OBJ gerado — sem gravar nada.
+
+Verificado com sucesso em:
+
+| three.js | build | resultado |
+|---|---|---|
+| 0.160.0 | `three.module.js` (arquivo único) | 1 cena, 1 malha, 24 v / 24 vn / 24 vt / 12 f |
+| 0.171.0 | `three.core.js` + `three.module.js` (a partir do r167) | idem |
+| 0.180.0 | `three.core.js` + `three.module.js` | idem |
+
+Nos três casos o primeiro vértice sai em `(8, 22, 32)` — o valor correto para
+`BoxGeometry(2,2,2)` com `position (10,20,30)`, `rotation.z = 90°` e `scale 2`,
+confirmando a aplicação da `matrixWorld`.
 
 ---
 

@@ -505,22 +505,54 @@
     return null;
   }
 
+  /**
+   * The diffuse colour as sRGB.
+   *
+   * three.js stores Material.color in the working (linear) colour space when
+   * color management is enabled, but .mtl expects sRGB. getHexString('srgb')
+   * does the conversion for us; the manual path is the fallback.
+   */
+  function materialColorSRGB(material) {
+    try {
+      if (material.color && typeof material.color.getHexString === 'function') {
+        var hex = material.color.getHexString('srgb');
+        return [
+          parseInt(hex.slice(0, 2), 16) / 255,
+          parseInt(hex.slice(2, 4), 16) / 255,
+          parseInt(hex.slice(4, 6), 16) / 255
+        ];
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    try {
+      if (material.color && typeof material.color.r === 'number') {
+        return [
+          linearToSRGB(material.color.r),
+          linearToSRGB(material.color.g),
+          linearToSRGB(material.color.b)
+        ];
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    return null;
+  }
+
+  /** Linear -> sRGB transfer function. */
+  function linearToSRGB(c) {
+    if (c <= 0.0031308) return c * 12.92;
+    return 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+  }
+
   function describeMaterial(material, index) {
     if (!material) {
       return { name: 'default', color: null, map: null, roughness: null, metalness: null };
     }
     var name = sanitizeName(material.name || 'material_' + (material.id != null ? material.id : index), 'material_' + index);
-    var color = null;
-    try {
-      if (material.color && typeof material.color.r === 'number') {
-        color = [material.color.r, material.color.g, material.color.b];
-      }
-    } catch (e) {
-      /* ignore */
-    }
     return {
       name: name,
-      color: color,
+      color: materialColorSRGB(material),
       map: textureUrl(material.map),
       roughness: typeof material.roughness === 'number' ? material.roughness : null,
       metalness: typeof material.metalness === 'number' ? material.metalness : null

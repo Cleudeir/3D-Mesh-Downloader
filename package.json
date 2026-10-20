@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "test": "node test/run.js",
+    "test:browser": "node tools/serve.js",
     "build": "node tools/build.js",
     "check": "node --check src/injected.js && node --check src/content.js && node --check src/popup.js && node test/run.js"
   },

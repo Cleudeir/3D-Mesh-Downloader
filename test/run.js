@@ -211,7 +211,14 @@ section('8. Materiais (.mtl)');
 
   check('o .mtl foi gerado', out.mtl.length > 0);
   check('newmtl com o nome saneado', out.mtl.includes('newmtl Pintura_Vermelha'), out.mtl.split('\n')[3]);
-  check('cor difusa exportada', out.mtl.includes('Kd 1 0.25 0.25'));
+  // three.js guarda a cor em espaco linear; o .mtl precisa de sRGB.
+  // mock: color(1, 0.25, 0.5) -> hex ff4080 -> 1, 64/255, 128/255
+  check('cor difusa exportada em sRGB', out.mtl.includes('Kd 1 0.25098 0.501961'),
+    (out.mtl.split('\n').find((l) => l.startsWith('Kd ')) || ''));
+  // mock legado sem getHexString: componentes lineares -> conversao manual
+  check('cor linear convertida para sRGB (fallback)',
+    out.mtl.includes('Kd 0.735357 0.735357 0.735357'),
+    (out.mtl.split('\n').filter((l) => l.startsWith('Kd ')).join(' | ')));
   check('textura referenciada', out.mtl.includes('map_Kd https://example.com/texture.png'));
   check('usemtl no .obj', out.obj.includes('usemtl Pintura_Vermelha'));
 }
