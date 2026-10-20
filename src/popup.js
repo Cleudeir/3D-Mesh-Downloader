@@ -340,7 +340,11 @@
   }
 
   function renderList() {
-    var visible = visibleModels();
+    // Os exportaveis ficam no topo; os excluidos vao para o fim da lista.
+    // O sort do JS e estavel, entao a ordem original se mantem dentro de cada grupo.
+    var visible = visibleModels().slice().sort(function (a, b) {
+      return (a.excluded ? 1 : 0) - (b.excluded ? 1 : 0);
+    });
     var scroll = els.list.scrollTop;
 
     els.list.textContent = '';
@@ -361,7 +365,16 @@
       return;
     }
 
+    var dividerDrawn = false;
     visible.forEach(function (model) {
+      if (model.excluded && !dividerDrawn) {
+        dividerDrawn = true;
+        var divider = document.createElement('div');
+        divider.className = 'list-divider';
+        divider.textContent = 'excluídas';
+        els.list.appendChild(divider);
+      }
+
       var label = document.createElement('label');
       label.title = model.name + ' - cena: ' + (model.scene || '?');
       if (model.excluded) label.classList.add('excluded');

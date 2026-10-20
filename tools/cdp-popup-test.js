@@ -179,6 +179,21 @@ async function shot(cdp, name) {
   console.log('  ' + JSON.stringify(await state()));
   console.log('  riscados: ' + await evaluate(popup,
     `document.querySelectorAll('#modelList label.excluded').length`));
+  console.log('  ordem: ' + await evaluate(popup, `(() => {
+    const rows = Array.from(document.querySelectorAll('#modelList label'));
+    const excluidas = rows.map((r) => r.classList.contains('excluded'));
+    const primeiroExcluido = excluidas.indexOf(true);
+    const ultimoExportavel = excluidas.lastIndexOf(false);
+    return JSON.stringify({
+      linhas: rows.length,
+      exportaveis: excluidas.filter((e) => !e).length,
+      excluidas: excluidas.filter((e) => e).length,
+      primeiroExcluido: primeiroExcluido,
+      ultimoExportavel: ultimoExportavel,
+      excluidasNoFim: primeiroExcluido === -1 || primeiroExcluido > ultimoExportavel,
+      separadores: document.querySelectorAll('#modelList .list-divider').length
+    });
+  })()`));
   await shot(popup, 'popup-5-modelos-excluindo');
 
   console.log('\n[6] teclado: Ctrl+3 / setas');  await evaluate(popup, `(() => {

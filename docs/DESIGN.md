@@ -139,6 +139,11 @@ conversão é feita com `Color.getHexString('srgb')`, com fallback manual
 O popup e a página usam **a mesma** regra e **os mesmos** números, então
 "filtrar por 500 KB" significa a mesma coisa dos dois lados.
 
+Na lista do popup os exportáveis vêm primeiro e os excluídos vão para o fim,
+atrás de um separador — a fila de exportação não se mistura com o que foi
+descartado. O `sort` é estável, então a ordem original é preservada dentro de
+cada grupo.
+
 A exclusão tem **prioridade sobre a seleção**: um modelo excluído nunca entra
 no arquivo, mesmo que esteja marcado.
 
