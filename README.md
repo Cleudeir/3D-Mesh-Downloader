@@ -68,6 +68,10 @@ O popup é dividido em **abas**, no estilo do Chrome:
 | **Exclusão** | padrões que nunca entram no arquivo e a prévia do que está sendo excluído |
 | **Exportar** | formato (OBJ/STL) e as opções de exportação |
 
+**"Unir tudo em um único arquivo" já vem marcado** — e volta marcado a cada abertura.
+Com vários arquivos o Chrome bloqueia downloads múltiplos e entrega só o primeiro;
+se você desmarcar e tentar baixar várias malhas, o popup avisa em vez de baixar.
+
 O botão **Baixar** e o **Atualizar contagem** ficam na aba **Modelos**, junto da
 lista; as outras abas cuidam só de configuração. A barra de status continua
 visível em qualquer aba. O badge de cada aba resume o estado (malhas

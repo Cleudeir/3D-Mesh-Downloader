@@ -255,7 +255,14 @@ e não pela API `chrome.downloads`. Isso dispensa a permissão `downloads` — e
 como a conversão acontece no navegador, o arquivo nunca passa pelo disco em
 formato intermediário.
 
-### Um arquivo só
+### Um arquivo só (e por que ele não é opcional na prática)
+
+O Chrome bloqueia downloads múltiplos: quando a página dispara vários, ele salva o
+primeiro e pede permissão para os demais. No popup isso virava "veio só 1 esfera".
+Por isso **"Unir tudo em um único arquivo" não é persistido**: ele volta marcado a
+cada abertura, e desmarcá-lo com mais de uma malha selecionada mostra um aviso em
+vez de iniciar N downloads.
+
 
 A exportação combinada (1 `.obj` + 1 `.mtl`, ou 1 `.stl`) contorna o limite de
 downloads múltiplos do Chrome, que corta downloads automáticos depois de ~10

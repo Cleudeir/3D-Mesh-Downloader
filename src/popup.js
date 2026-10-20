@@ -127,7 +127,7 @@
     }
   }
 
-  /** Formato e opcoes de exportacao, como estao no formulario agora. */
+  /** Objeto de configuracoes salvo (combine NAO entra: ver applySettings). */
   function readSettingsFromForm() {
     return {
       format: currentFormat(),
@@ -135,8 +135,7 @@
       normals: els.optNormals.checked,
       uvs: els.optUvs.checked,
       instances: els.optInstances.checked,
-      materials: els.optMaterials.checked,
-      combine: els.optCombine.checked
+      materials: els.optMaterials.checked
     };
   }
 
@@ -160,7 +159,10 @@
     els.optUvs.checked = s.uvs !== false;
     els.optInstances.checked = s.instances !== false;
     els.optMaterials.checked = s.materials !== false;
-    els.optCombine.checked = s.combine !== false;
+    // "unir tudo" fica sempre ligado ao abrir: com varios arquivos o Chrome
+    // bloqueia downloads multiplos e o usuario recebe so o primeiro (era o
+    // "veio so 1 esfera"). Se quiser arquivos separados, desmarque na sessao.
+    els.optCombine.checked = true;
   }
 
   function savePatterns() {
@@ -783,6 +785,14 @@
     var selected = selectedVisibleModels();
     if (!selected.length) {
       showStatus('Nenhuma malha selecionada.', 'err');
+      return;
+    }
+    // Um arquivo por malha = N downloads; o Chrome bloqueia downloads multiplos
+    // e o usuario recebe so o primeiro. Melhor avisar do que entregar 1 e calar.
+    if (!els.optCombine.checked && selected.length > 1) {
+      showStatus('Sao ' + selected.length + ' malhas e "Unir tudo em um unico arquivo" esta ' +
+        'desmarcado: o Chrome bloquearia os ' + selected.length + ' downloads e chegaria so o ' +
+        'primeiro. Marque a opcao na aba Exportar (ou selecione 1 malha).', 'err');
       return;
     }
     hideStatus();

@@ -373,6 +373,32 @@ async function shot(cdp, name) {
   check('unir tudo gera um unico arquivo', files.length === 1, JSON.stringify(files));
   await shot(popup, 'popup-8-download');
 
+  console.log('\n[8b] sem "unir tudo" o popup avisa em vez de baixar N arquivos');
+  await evaluate(popup, `(() => {
+    const c = document.getElementById('optCombine');
+    c.checked = false;
+    c.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(400);
+  const antesArquivos = fs.readdirSync(DOWNLOADS).length;
+  await evaluate(popup, `document.getElementById('downloadBtn').click()`);
+  await sleep(1500);
+  const aviso = JSON.parse(await evaluate(popup, `JSON.stringify({
+    texto: document.getElementById('status').textContent,
+    classe: document.getElementById('status').className
+  })`));
+  check('avisa sobre o bloqueio de downloads multiplos',
+    aviso.classe.indexOf('err') !== -1 && aviso.texto.indexOf('Unir tudo') !== -1, aviso.texto);
+  check('e nao dispara downloads',
+    fs.readdirSync(DOWNLOADS).length === antesArquivos, String(fs.readdirSync(DOWNLOADS).length));
+  await evaluate(popup, `(() => {
+    const c = document.getElementById('optCombine');
+    c.checked = true;
+    c.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+
   console.log('\n[9] preferencias sao lembradas ao reabrir');
   await evaluate(popup, `(() => {
     const f = document.getElementById('format');
@@ -393,8 +419,11 @@ async function shot(cdp, name) {
     normais: document.getElementById('optNormals').checked,
     criterio: document.getElementById('excludeSizeMode').value + ' ' + document.getElementById('excludeSizeKB').value,
     listaTamanho: document.querySelectorAll('#sizeList .pattern').length,
+    combinar: document.getElementById('optCombine').checked,
     aba: document.querySelector('.tab[aria-selected="true"]').dataset.tab
   })`));
+  check('"unir tudo" volta marcado ao reabrir',
+    (await evaluate(popup, `document.getElementById('optCombine').checked`)) === true);
   await shot(popup, 'popup-12-preferencias-lembradas');
 
   // devolve o padrao (STL + normais)
