@@ -239,12 +239,18 @@
     }
     .pattern button:hover { color: var(--err); }
     .no-patterns { color: var(--muted); font-size: 11px; }
-    .exclude-preview {
+    .exclude-size {
       margin-top: 10px;
       padding-top: 8px;
       border-top: 1px solid var(--line);
     }
-    .exclude-preview h3 {
+    #excludeSizeMode { width: auto; flex: 1; }
+    .unit { font-size: 11px; color: var(--muted); align-self: center; }
+    .exclude-preview {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }    .exclude-preview h3 {
       font-size: 12px;
       font-weight: 600;
       color: var(--muted);
@@ -496,6 +502,23 @@
         <code>X*</code> pega a familia toda (X, X_1, XY) &middot; <code>X_1</code> pega so o segundo.<br>
         A lista fica salva no navegador, entre sessoes.
       </p>
+
+      <div class="exclude-size">
+        <label class="opt">
+          <input type="checkbox" id="excludeSizeOn" checked>
+          <span>Excluir por tamanho
+            <small>Usa o tamanho estimado do formato escolhido na aba Exportar</small>
+          </span>
+        </label>
+        <div class="filter-row" style="margin-top:6px;">
+          <select id="excludeSizeMode" title="direcao da regra">
+            <option value="above">maior que</option>
+            <option value="below">menor que</option>
+          </select>
+          <input type="number" id="excludeSizeKB" value="50" min="0" step="1" title="limite em KB">
+          <span class="unit">KB</span>
+        </div>
+      </div>
       <div class="exclude-preview">
         <h3>Excluidas nesta pagina</h3>
         <div id="excludePreview"><div class="empty">nenhuma</div></div>

@@ -95,6 +95,27 @@ O padrão é testado contra o nome original da malha, o nome que ela recebe no
 arquivo exportado (`X_1`, quando vários modelos têm o mesmo nome) e esse
 nome sem o sufixo.
 
+### Exclusão por tamanho
+
+Logo abaixo dos padrões, uma regra de tamanho:
+
+| Campo | O que faz |
+|---|---|
+| **Excluir por tamanho** | liga/desliga a regra (padrão: ligada) |
+| **maior que / menor que** | direção da comparação |
+| **KB** | limite (padrão: 50) |
+
+O tamanho é o **estimado para o formato escolhido** na aba Exportar — o mesmo
+número que aparece na lista — então `> 50 KB` significa o mesmo no popup e no
+arquivo. Trocar o formato reavalia a regra; ela também fica salva no navegador.
+
+> O padrão é **maior que 50 KB**. No Tripo isso exclui o modelo principal
+> (~26 MB) e deixa justamente os gizmos pequenos — se o objetivo for descartar
+> os gizmos, use **menor que 50 KB**.
+
+Clicar no `↺` de um modelo excluído **pela regra de tamanho** leva direto à
+aba Exclusão, para ajustar o limite (não há padrão de nome para remover).
+
 Os excluídos vão para o **fim da lista**, atrás de um separador `EXCLUÍDAS` — a
 fila de exportação fica sempre no topo. Esse bloco tem **rolagem própria**, e a
 prévia da aba Exclusão também: dá para percorrer os nomes sem arrastar a lista

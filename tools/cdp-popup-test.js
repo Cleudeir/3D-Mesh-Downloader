@@ -175,6 +175,48 @@ async function shot(cdp, name) {
       .map(h => h.querySelector('.mname').textContent)`)));
   await shot(popup, 'popup-4-exclusao-com-padrao');
 
+  console.log('\n[4b] regra de tamanho');
+  await evaluate(popup, `document.getElementById('tab-exclusao').click()`);
+  await sleep(400);
+  console.log('  padrao: ' + await evaluate(popup, `JSON.stringify({
+    ligada: document.getElementById('excludeSizeOn').checked,
+    modo: document.getElementById('excludeSizeMode').value,
+    kb: document.getElementById('excludeSizeKB').value
+  })`));
+  await sleep(1800);
+  console.log('  excluidas por tamanho (padrao maior que 50 KB): ' + await evaluate(popup, `(() => {
+    const hits = Array.from(document.querySelectorAll('#excludePreview .hit'));
+    const porTamanho = hits.filter((h) => h.querySelector('.mmeta').textContent.indexOf('tamanho') === 0);
+    return JSON.stringify({ total: hits.length, porTamanho: porTamanho.length,
+      amostra: porTamanho.slice(0, 3).map((h) => h.querySelector('.mname').textContent) });
+  })()`));
+  await shot(popup, 'popup-4b-tamanho-padrao');
+
+  // troca para "menor que" e ve o efeito
+  await evaluate(popup, `(() => {
+    const m = document.getElementById('excludeSizeMode');
+    m.value = 'below';
+    m.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(2000);
+  console.log('  agora menor que 50 KB: ' + await evaluate(popup, `(() => {
+    const hits = Array.from(document.querySelectorAll('#excludePreview .hit'));
+    const porTamanho = hits.filter((h) => h.querySelector('.mmeta').textContent.indexOf('tamanho') === 0);
+    return JSON.stringify({ total: hits.length, porTamanho: porTamanho.length,
+      regra: porTamanho.length ? porTamanho[0].querySelector('.mmeta').textContent : null });
+  })()`));
+  await shot(popup, 'popup-4c-tamanho-menor-que');
+
+  // desliga e volta ao padrao para nao afetar os passos seguintes
+  await evaluate(popup, `(() => {
+    const on = document.getElementById('excludeSizeOn');
+    on.checked = false;
+    on.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(1500);
+
   console.log('\n[5] volta para Modelos (badge e lista riscada)');
   await evaluate(popup, `document.getElementById('tab-modelos').click()`);
   await sleep(400);

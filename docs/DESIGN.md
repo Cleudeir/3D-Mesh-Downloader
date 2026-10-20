@@ -135,9 +135,16 @@ conversão é feita com `Color.getHexString('srgb')`, com fallback manual
 | Filtro por tamanho | página + popup | estimativa **por formato** (`84 + 50 × triângulos` no STL) |
 | Seleção explícita | página | lista de ids enviada no `include` |
 | **Lista de exclusão** | página | padrões de nome, persistidos em `chrome.storage.local` |
+| **Regra de tamanho** | página | limite em KB por modelo, na direção escolhida (`>` ou `<`) |
 
 O popup e a página usam **a mesma** regra e **os mesmos** números, então
 "filtrar por 500 KB" significa a mesma coisa dos dois lados.
+
+A regra de tamanho compara o **tamanho estimado no formato escolhido** — trocar
+para STL muda a estimativa e, com ela, quem entra ou sai. O padrão é
+`maior que 50 KB`, e a regra só é aplicada depois da lista de nomes: se um
+modelo casa com os dois, a marcação mostra o padrão de nome (mais específico),
+mas ele é contado uma única vez.
 
 Na lista do popup os exportáveis vêm primeiro e os excluídos vão para o fim,
 atrás de um separador — a fila de exportação não se mistura com o que foi

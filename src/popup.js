@@ -40,6 +40,9 @@
     clearExclude: document.getElementById('clearExclude'),
     patternList: document.getElementById('patternList'),
     excludePreview: document.getElementById('excludePreview'),
+    excludeSizeOn: document.getElementById('excludeSizeOn'),
+    excludeSizeMode: document.getElementById('excludeSizeMode'),
+    excludeSizeKB: document.getElementById('excludeSizeKB'),
     tabBadgeModels: document.getElementById('tabBadgeModels'),
     tabBadgeExclude: document.getElementById('tabBadgeExclude')
   };
@@ -49,11 +52,14 @@
   var models = [];            // descriptors coming from the page
   var selection = new Set();  // ids the user wants to export
   var excludePatterns = [];   // names that must never be captured
+  var excludeSize = { enabled: true, mode: 'above', kb: 50 }; // "nao capturar" por tamanho
   var pollTimer = null;
   var lastSignature = '';
   var lastInfoSignature = null;
 
   var STORAGE_KEY = 'excludePatterns';
+  var STORAGE_KEY_SIZE = 'excludeSize';
+  var DEFAULT_SIZE = { enabled: true, mode: 'above', kb: 50 };
 
   // ---------------------------------------------------------------------------
   // Lista de exclusao (persistida)
@@ -61,12 +67,26 @@
 
   function loadPatterns(callback) {
     try {
-      chrome.storage.local.get({ [STORAGE_KEY]: [] }, function (items) {
+      chrome.storage.local.get({
+        [STORAGE_KEY]: [],
+        [STORAGE_KEY_SIZE]: DEFAULT_SIZE
+      }, function (items) {
         var stored = items && items[STORAGE_KEY];
         excludePatterns = Array.isArray(stored) ? stored.slice() : [];
+
+        var size = items && items[STORAGE_KEY_SIZE];
+        if (size && typeof size === 'object') {
+          excludeSize = {
+            enabled: size.enabled !== false,
+            mode: size.mode === 'below' ? 'below' : 'above',
+            kb: isFinite(Number(size.kb)) && Number(size.kb) >= 0 ? Number(size.kb) : 50
+          };
+        }
+        renderExcludeSize();
         callback();
       });
     } catch (e) {
+      renderExcludeSize();
       callback();
     }
   }
@@ -77,6 +97,45 @@
     } catch (e) {
       /* storage indisponivel: a lista continua valendo na sessao */
     }
+  }
+
+  function saveExcludeSize() {
+    try {
+      chrome.storage.local.set({ [STORAGE_KEY_SIZE]: excludeSize });
+    } catch (e) {
+      /* storage indisponivel */
+    }
+  }
+
+  /** Mirrors the size rule state into the inputs. */
+  function renderExcludeSize() {
+    if (!els.excludeSizeOn) return;
+    els.excludeSizeOn.checked = excludeSize.enabled;
+    els.excludeSizeMode.value = excludeSize.mode;
+    els.excludeSizeKB.value = String(excludeSize.kb);
+    els.excludeSizeMode.disabled = !excludeSize.enabled;
+    els.excludeSizeKB.disabled = !excludeSize.enabled;
+  }
+
+  /** Reads the size rule from the inputs, persists it and refreshes the page. */
+  function readSizeInputs() {
+    var kb = Number(els.excludeSizeKB.value);
+    if (!isFinite(kb) || kb < 0) kb = 0;
+    excludeSize = {
+      enabled: els.excludeSizeOn.checked,
+      mode: els.excludeSizeMode.value === 'below' ? 'below' : 'above',
+      kb: kb
+    };
+    saveExcludeSize();
+    els.excludeSizeMode.disabled = !excludeSize.enabled;
+    els.excludeSizeKB.disabled = !excludeSize.enabled;
+    updateExcludeBadge();
+    requestInfo();
+  }
+
+  /** Badge = padroes de nome + a regra de tamanho (quando ligada). */
+  function updateExcludeBadge() {
+    setBadge(els.tabBadgeExclude, excludePatterns.length + (excludeSize.enabled ? 1 : 0));
   }
 
   function addPattern(pattern) {
@@ -100,7 +159,7 @@
 
   function renderPatterns() {
     els.patternList.textContent = '';
-    setBadge(els.tabBadgeExclude, excludePatterns.length);
+    updateExcludeBadge();
     if (!excludePatterns.length) {
       var none = document.createElement('span');
       none.className = 'no-patterns';
@@ -430,14 +489,22 @@
       excl.type = 'button';
       excl.className = 'excl';
       excl.textContent = model.excluded ? '\u21ba' : '\u2298';
+      var excludedBySize = model.excludedBy && String(model.excludedBy).indexOf('tamanho ') === 0;
       excl.title = model.excluded
-        ? 'remover da lista de exclusao (' + model.excludedBy + ')'
+        ? (excludedBySize
+            ? 'excluido pela regra de tamanho (clique para ajustar)'
+            : 'remover da lista de exclusao (' + model.excludedBy + ')')
         : 'nao exportar este modelo';
       excl.addEventListener('click', function (event) {
         event.preventDefault();
         event.stopPropagation();
         if (model.excluded) {
-          if (model.excludedBy) removePattern(model.excludedBy);
+          if (excludedBySize) {
+            selectTab('exclusao');
+            els.excludeSizeKB.focus();
+          } else if (model.excludedBy) {
+            removePattern(model.excludedBy);
+          }
         } else {
           addPattern(model.name);
         }
@@ -528,7 +595,12 @@
         showStatus('Nao foi possivel acessar a aba ativa.', 'err');
         return;
       }
-      chrome.tabs.sendMessage(tabId, { type: 'MDL_GET_INFO', exclude: excludePatterns }, function () {
+      chrome.tabs.sendMessage(tabId, {
+        type: 'MDL_GET_INFO',
+        exclude: excludePatterns,
+        excludeSize: excludeSize,
+        format: currentFormat()
+      }, function () {
         if (chrome.runtime.lastError) {
           els.count.textContent = '-';
           els.download.disabled = true;
@@ -553,7 +625,12 @@
         minKB: filter.minKB,
         maxKB: filter.maxKB,
         include: selectedVisibleModels().map(function (m) { return m.id; }),
-        exclude: excludePatterns.slice()
+        exclude: excludePatterns.slice(),
+        excludeSize: {
+          enabled: excludeSize.enabled,
+          mode: excludeSize.mode,
+          kb: excludeSize.kb
+        }
       }
     };
   }
@@ -646,6 +723,8 @@
     applyFormatToOptions();
     renderList();
     updateSelectionPill();
+    // o tamanho estimado muda com o formato: a regra de tamanho precisa saber
+    requestInfo();
   });
 
   els.filterText.addEventListener('input', onFilterChange);
@@ -694,6 +773,17 @@
     renderPatterns();
     requestInfo();
   });
+
+  // --- regra de tamanho -----------------------------------------------------
+  var sizeTimer = null;
+  function queueSizeChange() {
+    if (sizeTimer) clearTimeout(sizeTimer);
+    sizeTimer = setTimeout(readSizeInputs, 250);
+  }
+  els.excludeSizeOn.addEventListener('change', readSizeInputs);
+  els.excludeSizeMode.addEventListener('change', readSizeInputs);
+  els.excludeSizeKB.addEventListener('input', queueSizeChange);
+  els.excludeSizeKB.addEventListener('change', readSizeInputs);
 
   // Poll while the popup stays open so the count follows the page.
   pollTimer = setInterval(requestInfo, 2000);

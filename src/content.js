@@ -63,7 +63,12 @@
     if (!request || typeof request !== 'object') return false;
 
     if (request.type === 'MDL_GET_INFO') {
-      window.postMessage({ type: 'MDL_GET_INFO', exclude: request.exclude || [] }, '*');
+      window.postMessage({
+        type: 'MDL_GET_INFO',
+        exclude: request.exclude || [],
+        excludeSize: request.excludeSize || null,
+        format: request.format || 'obj'
+      }, '*');
       sendResponse({ status: 'requested' });
       return true;
     }
@@ -98,12 +103,20 @@
         minKB: null,
         maxKB: null,
         include: null,
-        exclude: params.getAll('exclude').filter(Boolean)
+        exclude: params.getAll('exclude').filter(Boolean),
+        excludeSize: null
       }
     };
     if (params.get('min')) options.filter.minKB = Number(params.get('min'));
     if (params.get('max')) options.filter.maxKB = Number(params.get('max'));
     if (params.get('text')) options.filter.text = params.get('text');
+    if (params.get('sizekb')) {
+      options.filter.excludeSize = {
+        enabled: true,
+        mode: params.get('sizemode') === 'below' ? 'below' : 'above',
+        kb: Number(params.get('sizekb'))
+      };
+    }
     return options;
   }
 

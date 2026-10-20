@@ -766,6 +766,30 @@
     return exclusionMatch(model, patterns) !== null;
   }
 
+  /**
+   * Exclusao por tamanho.
+   *
+   *   { enabled: true, mode: 'above', kb: 50 } -> exclui o que for MAIOR que 50 KB
+   *   { enabled: true, mode: 'below', kb: 50 } -> exclui o que for MENOR que 50 KB
+   *
+   * O tamanho e o estimado para o formato escolhido - o mesmo numero que o
+   * popup mostra na lista, entao "50 KB" significa a mesma coisa nos dois.
+   */
+  function sizeExclusion(model, rule, format) {
+    if (!rule || !rule.enabled) return null;
+    var kb = Number(rule.kb);
+    if (!isFinite(kb) || kb < 0) return null;
+
+    var limit = kb * 1024;
+    var size = sizeForFormat(model, format);
+    var above = rule.mode !== 'below';
+
+    if (above ? size > limit : size < limit) {
+      return 'tamanho ' + (above ? '>' : '<') + ' ' + kb + ' KB';
+    }
+    return null;
+  }
+
   // ---------------------------------------------------------------------------
   // OBJ writer
   // ---------------------------------------------------------------------------
@@ -1208,6 +1232,8 @@
       if (include && !include.has(model.id)) return;
       // exclusion list (the "nao deve ser capturado" patterns)
       if (isExcluded(model, filter.exclude)) return;
+      // size rule (o "nao capturar modelos acima/abaixo de N KB")
+      if (sizeExclusion(model, filter.excludeSize, options.format)) return;
       // text / size filter
       if (!matchesFilter(model, filter, options.format)) return;
 
@@ -1245,7 +1271,7 @@
       materials: 'on',
       combine: true,
       format: 'obj',
-      filter: { text: '', minKB: null, maxKB: null, include: null }
+      filter: { text: '', minKB: null, maxKB: null, include: null, exclude: null, excludeSize: null }
     };
   }
 
@@ -1270,6 +1296,15 @@
           .map(function (p) { return String(p || '').trim(); })
           .filter(function (p) { return p.length > 0; });
       }
+      if (f.excludeSize && typeof f.excludeSize === 'object') {
+        var sizeRule = f.excludeSize;
+        var kb = Number(sizeRule.kb);
+        opts.filter.excludeSize = {
+          enabled: sizeRule.enabled !== false,
+          mode: sizeRule.mode === 'below' ? 'below' : 'above',
+          kb: isFinite(kb) && kb >= 0 ? kb : 50
+        };
+      }
     }
 
     if (raw.format === 'stl' || raw.format === 'stl-ascii' || raw.format === 'obj') {
@@ -1279,7 +1314,7 @@
     return opts;
   }
 
-  function sceneInfo(excludePatterns) {
+  function sceneInfo(excludePatterns, excludeSize, format) {
     var list = [];
     var models = collectModels();
 
@@ -1295,7 +1330,7 @@
     // only plain data goes through postMessage (structured clone)
     var excludedCount = 0;
     var modelList = models.map(function (m) {
-      var excludedBy = exclusionMatch(m, excludePatterns);
+      var excludedBy = exclusionMatch(m, excludePatterns) || sizeExclusion(m, excludeSize, format);
       if (excludedBy) excludedCount++;
       return {
         id: m.id,
@@ -1475,7 +1510,7 @@
     if (!data || typeof data !== 'object') return;
 
     if (data.type === 'MDL_GET_INFO') {
-      var info = sceneInfo(data.exclude);
+      var info = sceneInfo(data.exclude, data.excludeSize, data.format);
       reply({ type: 'MDL_INFO', info: info, version: VERSION });
     } else if (data.type === 'MDL_DOWNLOAD') {
       var result;

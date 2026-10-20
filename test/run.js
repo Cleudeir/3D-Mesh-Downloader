@@ -577,6 +577,53 @@ section('15. Lista de exclusao por nome');
 }
 
 // ---------------------------------------------------------------------------
+section('16. Exclusao por tamanho');
+{
+  // tamanhos do mock (OBJ): cube 532 B, flat 256 B, instances 692 B,
+  // skinned 286 B, emptyInstances 346 B
+  const { env } = setup();
+  const info = (opts) => env.request(Object.assign({ type: 'MDL_GET_INFO' }, opts))
+    .find((m) => m.type === 'MDL_INFO').info;
+
+  eq('sem regra, nada e excluido por tamanho', info({}).excludedCount, 0);
+
+  const acima = info({ excludeSize: { enabled: true, mode: 'above', kb: 0.5 }, format: 'obj' });
+  eq('maior que 0.5 KB exclui 2 (cube e instances)', acima.excludedCount, 2);
+  check('a marcacao diz qual regra pegou',
+    acima.models.filter((m) => m.excluded)
+      .every((m) => m.excludedBy === 'tamanho > 0.5 KB'),
+    acima.models.filter((m) => m.excluded).map((m) => m.excludedBy).join(','));
+
+  const abaixo = info({ excludeSize: { enabled: true, mode: 'below', kb: 0.5 }, format: 'obj' });
+  eq('menor que 0.5 KB exclui 3', abaixo.excludedCount, 3);
+
+  eq('regra desligada nao exclui nada',
+    info({ excludeSize: { enabled: false, mode: 'above', kb: 0.5 }, format: 'obj' }).excludedCount, 0);
+
+  const porNome = info({ exclude: ['cube'], excludeSize: { enabled: true, mode: 'above', kb: 0.5 }, format: 'obj' });
+  eq('o nome tem prioridade na marcacao',
+    porNome.models.find((m) => m.name === 'cube').excludedBy, 'cube');
+  eq('e o contador nao conta duas vezes', porNome.excludedCount, 2);
+
+  eq('a regra usa o tamanho do formato escolhido (STL)',
+    info({ excludeSize: { enabled: true, mode: 'above', kb: 0.2 }, format: 'stl' }).excludedCount, 1);
+
+  eq('limite invalido nao quebra',
+    info({ excludeSize: { enabled: true, mode: 'above', kb: 'abc' }, format: 'obj' }).excludedCount, 0);
+}
+{
+  // a regra tambem tira o modelo do arquivo exportado
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { excludeSize: { enabled: true, mode: 'above', kb: 0.5 } }
+  });
+  const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2)).sort();
+  eq('o arquivo sai sem os modelos acima do limite',
+    objects.join(','), 'emptyInstances,flat,skinned');
+}
+
+// ---------------------------------------------------------------------------
 section('Deep link: achar a aba mesmo quando o SPA troca de rota');
 {
   const vm = require('vm');
