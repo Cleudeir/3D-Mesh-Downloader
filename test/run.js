@@ -94,7 +94,7 @@ section('1. Captura de cena');
   const replies = env.request({ type: 'MDL_GET_INFO' });
   const reply = replies.find((m) => m.type === 'MDL_INFO');
   check('a cena foi capturada via __THREE_DEVTOOLS__', !!reply);
-  eq('numero de malhas', reply.info.count, 4);
+  eq('numero de malhas', reply.info.count, 5);
   eq('numero de cenas', reply.info.sceneCount, 1);
   eq('nome da cena', reply.info.scenes[0].name, 'MockScene');
 }
@@ -111,7 +111,7 @@ section('2. Exportacao combinada (um unico .obj + .mtl)');
   eq('nome do .mtl', out.files[1].filename, 'example.test.mtl');
 
   check('o .obj referencia o .mtl', out.obj.includes('mtllib example.test.mtl'));
-  check('o .obj tem 5 objetos (instancia expandida)', countLines(out.obj, 'o ') === 5, 'o -> ' + countLines(out.obj, 'o '));
+  check('o .obj tem 6 objetos (instancia expandida + InstancedMesh vazio)', countLines(out.obj, 'o ') === 6, 'o -> ' + countLines(out.obj, 'o '));
 
   const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2));
   check('instancia 0 presente', objects.includes('instances_inst0'), objects.join(','));
@@ -187,7 +187,7 @@ section('6. InstancedMesh expandido');
 {
   const { env } = setup();
   const out = download(env, { combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none', expandInstances: false });
-  eq('sem expansao, apenas 4 objetos', countLines(out.obj, 'o '), 4);
+  eq('sem expansao, apenas 5 objetos', countLines(out.obj, 'o '), 5);
 }
 
 // ---------------------------------------------------------------------------
@@ -229,8 +229,8 @@ section('9. Um arquivo por malha (modo legado)');
   const { env } = setup();
   const out = download(env, { combine: false, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none' });
 
-  eq('5 arquivos .obj (4 malhas + 1 instancia extra)', out.files.length, 5);
-  check('nomes unicos', new Set(out.files.map((f) => f.filename)).size === 5);
+  eq('6 arquivos .obj (5 malhas + 1 instancia extra)', out.files.length, 6);
+  check('nomes unicos', new Set(out.files.map((f) => f.filename)).size === 6);
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +267,125 @@ section('11. Robustez');
   const replies = env.request({ type: 'MDL_GET_INFO' });
   const reply = replies.find((m) => m.type === 'MDL_INFO');
   check('hook sobrevive a um __THREE_DEVTOOLS__ definido pela pagina',
-    reply && reply.info.count === 4, reply ? String(reply.info.count) : 'sem resposta');
+    reply && reply.info.count === 5, reply ? String(reply.info.count) : 'sem resposta');
+}
+
+// ---------------------------------------------------------------------------
+section('12. Filtro por nome e por tamanho');
+{
+  const { env } = setup();
+  const replies = env.request({ type: 'MDL_GET_INFO' });
+  const info = replies.find((m) => m.type === 'MDL_INFO').info;
+
+  eq('5 modelos listados', info.models.length, 5);
+  check('cada modelo tem id, nome, vertices, faces e tamanho',
+    info.models.every((m) => m.id && m.name && m.vertexCount >= 0 && m.faceCount >= 0 && m.sizeBytes > 0));
+  check('cada modelo tem bounding box',
+    info.models.every((m) => m.bounds && m.bounds.size.length === 3));
+
+  const cube = info.models.find((m) => m.name === 'cube');
+  const inst = info.models.find((m) => m.name === 'instances');
+  check('o tamanho estimado do cube (~532 B) bate', cube.sizeBytes === 532, String(cube.sizeBytes));
+  check('instancias multiplicam o tamanho estimado (346 x 2 = 692)', inst.sizeBytes === 692, String(inst.sizeBytes));
+  check('o tamanho total e a soma dos modelos', info.totalSizeBytes > cube.sizeBytes);
+}
+{
+  // filtro por texto
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { text: 'cube' }
+  });
+  const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2));
+  eq('filtro por texto mantem apenas "cube"', objects.length, 1);
+  eq('o objeto kept e o cube', objects[0], 'cube');
+}
+{
+  // filtro por texto tambem olha cena e material
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { text: 'Esqueleto' }
+  });
+  const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2));
+  eq('filtro por nome de material', objects.length, 1);
+  eq('objeto encontrado pelo material', objects[0], 'skinned');
+}
+{
+  // filtro por tamanho (min KB)
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { minKB: 0.5 }
+  });
+  const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2)).sort();
+  eq('filtro por tamanho minimo mantém 2 modelos (3 objetos: instancias vira 2)', objects.length, 3);
+  check('sao os maiores (cube e as 2 instancias)',
+    objects.includes('cube') && objects.includes('instances_inst0') && objects.includes('instances_inst1'),
+    objects.join(','));
+}
+{
+  // filtro por tamanho (max KB)
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { maxKB: 0.3 }
+  });
+  const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2)).sort();
+  eq('filtro por tamanho maximo mantém os pequenos', objects.join(','), 'flat,skinned');
+}
+{
+  // seleção explicita
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { include: ['s0_m0'] }
+  });
+  const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2));
+  eq('selecao explicita exporta 1 modelo', objects.length, 1);
+  eq('modelo selecionado', objects[0], 'cube');
+}
+{
+  // filtro que nao casa com nada
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { text: 'nao-existe-xyz' }
+  });
+  check('filtro sem resultado retorna erro', out.result && out.result.ok === false, JSON.stringify(out.result));
+  eq('nenhum arquivo gerado', out.files.length, 0);
+}
+
+
+// ---------------------------------------------------------------------------
+section('13. InstancedMesh com zero instancias nao pode sumir');
+{
+  const { env } = setup();
+  const out = download(env, { combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none' });
+  const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2));
+  check('o InstancedMesh vazio e exportado como malha base',
+    objects.includes('emptyInstances'), objects.join(','));
+  const block = objectBlock(out.obj, 'emptyInstances');
+  const verts = block.filter((l) => l.startsWith('v '));
+  eq('com 3 vertices', verts.length, 3);
+}
+{
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { text: 'Vazio' }
+  });
+  const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2));
+  eq('filtro por texto acha o InstancedMesh vazio', objects.length, 1);
+  eq('e o objeto certo', objects[0], 'emptyInstances');
+}
+{
+  const { env } = setup();
+  const replies = env.request({ type: 'MDL_GET_INFO' });
+  const info = replies.find((m) => m.type === 'MDL_INFO').info;
+  const empty = info.models.find((m) => m.name === 'emptyInstances');
+  check('o modelo vazio aparece na lista', !!empty);
+  eq('e reporta 1 instancia (nao 0)', empty.instances, 1);
 }
 
 // ---------------------------------------------------------------------------

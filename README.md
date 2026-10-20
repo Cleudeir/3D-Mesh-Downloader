@@ -64,6 +64,31 @@ pronto para upload no [Painel do Desenvolvedor](https://chrome.google.com/websto
 | Exportar materiais (`.mtl`) | ligado | Gera `newmtl`, `Kd`, `Pr`, `Pm` e `map_Kd` |
 | Unir tudo em um único `.obj` | ligado | **1 `.obj` + 1 `.mtl`** em vez de N downloads (contorna o limite do Chrome) |
 
+### Filtro por nome e por tamanho
+
+O popup lista **cada malha encontrada** com nome, vértices, faces e tamanho estimado,
+e permite filtrar antes de exportar:
+
+| Controle | Efeito |
+|---|---|
+| Campo de texto | Casa o nome do modelo, o nome da cena e o nome do material (case-insensitive) |
+| `min KB` / `max KB` | Filtra pelo tamanho estimado do `.obj` que a malha produziria |
+| Checkbox por modelo | Seleção explícita: exporta só o que estiver marcado |
+| `Todos` / `Nenhum` / `Só os visíveis` | Atalhos para a seleção |
+
+O filtro é aplicado **no navegador** (no `injected.js`), então o que sai no download
+já é o que foi filtrado. As opções chegam ao script da página por `window.postMessage`
+e são validadas de novo lá — o popup nunca envia dados do modelo, só uma lista de ids.
+
+Exemplo real (página do Tripo3D, 68 malhas):
+
+| Filtro | Resultado |
+|---|---|
+| texto `skeleton` | 2 malhas — 360 faces |
+| `max 50 KB` | 66 malhas — 3.833 faces |
+| `min 5000 KB` | 1 malha — 340.956 faces (34 MB) |
+| sem filtro | 68 malhas — 352.853 faces (36,5 MB) |
+
 ---
 
 ## Arquitetura
@@ -166,9 +191,40 @@ Verificado com sucesso em:
 | 0.171.0 | `three.core.js` + `three.module.js` (a partir do r167) | idem |
 | 0.180.0 | `three.core.js` + `three.module.js` | idem |
 
-Nos três casos o primeiro vértice sai em `(8, 22, 32)` — o valor correto para
+Nos três casos o primeiro vértice sai em `(8, 22, 32)` - o valor correto para
 `BoxGeometry(2,2,2)` com `position (10,20,30)`, `rotation.z = 90°` e `scale 2`,
 confirmando a aplicação da `matrixWorld`.
+
+### Teste em navegador real (Chrome + CDP)
+
+O `tools/` traz um cliente CDP próprio (`tools/cdp.js`), sem dependências, para
+dirigir um Chrome real:
+
+```bash
+# 1. sobe uma instancia de teste (perfil proprio em .chrome-debug)
+powershell -ExecutionPolicy Bypass -File tools\relaunch-debug-chrome.ps1
+
+# 2. dispara uma exportacao e observa os eventos de download
+node tools\cdp-download-test.js
+```
+
+> O `--remote-debugging-port` é ignorado pelo Chrome 136+ quando se usa o perfil
+> padrão, por isso a instância de teste usa um `--user-data-dir` próprio.
+> A extensão é instalada por `Extensions.loadUnpacked` (CDP), já que o Chrome
+> de marca ignora `--load-extension`.
+
+Validado em <https://studio.tripo3d.ai/workspace/generate/white-fluffy-dog-with-pink-bow-843c95e3-2c89-4ac4-997c-15a119fd0ea7>
+(three.js **r183**, 182.412 vértices / 340.956 faces):
+
+- a extensão capturou **68 malhas em 5 cenas**, e o modelo principal bate
+  exatamente com o contador da própria página (182.412 vértices / 340.956 faces);
+- a exportação completa gerou um `.obj` de **36,5 MB** (190.427 vértices,
+  352.853 faces, 21 materiais) + um `.mtl`;
+- os quatro filtros (texto, tamanho mín/máx, seleção explícita) produziram
+  exatamente os conjuntos esperados.
+
+Esse teste real encontrou um bug que os testes sintéticos não pegavam — ver
+[docs/ANALISE.md](docs/ANALISE.md).
 
 ---
 

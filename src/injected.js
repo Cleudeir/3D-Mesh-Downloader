@@ -567,6 +567,122 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Model descriptors (used by the popup filter)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Rough size of the OBJ fragment a mesh would produce, in bytes.
+   * Used by the "size" filter, so an estimate is enough - the exact file
+   * size is reported after the export.
+   */
+  function estimateModelSize(mesh, vertexCount, faceCount, instances) {
+    var hasNormals = !!mesh.geometry.attributes.normal;
+    var hasUvs = !!mesh.geometry.attributes.uv;
+    var bytes = vertexCount * 30 + faceCount * 38 + 128;
+    if (hasNormals) bytes += vertexCount * 30;
+    if (hasUvs) bytes += vertexCount * 22;
+    return Math.round(bytes * (instances || 1));
+  }
+
+  /** World-space bounding box of a mesh (local bbox corners transformed). */
+  function modelBounds(mesh) {
+    var position = mesh.geometry.attributes.position;
+    if (!position || !position.count) return null;
+
+    var min = [Infinity, Infinity, Infinity];
+    var max = [-Infinity, -Infinity, -Infinity];
+    for (var i = 0; i < position.count; i++) {
+      var x = position.getX(i), y = position.getY(i), z = position.getZ(i);
+      if (x < min[0]) min[0] = x; if (x > max[0]) max[0] = x;
+      if (y < min[1]) min[1] = y; if (y > max[1]) max[1] = y;
+      if (z < min[2]) min[2] = z; if (z > max[2]) max[2] = z;
+    }
+
+    var world = worldMatrixOf(mesh);
+    var lo = [Infinity, Infinity, Infinity];
+    var hi = [-Infinity, -Infinity, -Infinity];
+    for (var c = 0; c < 8; c++) {
+      var p = applyMatrix4(
+        world,
+        (c & 1) ? max[0] : min[0],
+        (c & 2) ? max[1] : min[1],
+        (c & 4) ? max[2] : min[2]
+      );
+      for (var a = 0; a < 3; a++) {
+        if (p[a] < lo[a]) lo[a] = p[a];
+        if (p[a] > hi[a]) hi[a] = p[a];
+      }
+    }
+
+    return {
+      min: lo,
+      max: hi,
+      size: [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]],
+      center: [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2]
+    };
+  }
+
+  /** Serializable description of a single mesh found in a scene. */
+  function describeModel(mesh, sceneInfo, sceneIndex, meshIndex) {
+    var geometry = mesh.geometry;
+    var position = geometry.attributes.position;
+    var vertexCount = position ? position.count : 0;
+    var index = geometry.index;
+    var faceCount = index ? Math.floor(index.count / 3) : Math.floor(vertexCount / 3);
+    var instances = mesh.isInstancedMesh && mesh.instanceMatrix ? mesh.instanceMatrix.count : 1;
+    if (instances < 1) instances = 1; // InstancedMesh vazio: exporta a malha base
+    var materials = [];
+    materialsOf(mesh).forEach(function (m, i) { materials.push(describeMaterial(m, i).name); });
+
+    return {
+      id: 's' + sceneIndex + '_m' + meshIndex,
+      name: mesh.name || ('mesh_' + meshIndex),
+      scene: sceneInfo.name,
+      mesh: mesh,
+      vertexCount: vertexCount,
+      faceCount: faceCount,
+      instances: instances,
+      materials: materials,
+      sizeBytes: estimateModelSize(mesh, vertexCount, faceCount, instances),
+      bounds: modelBounds(mesh)
+    };
+  }
+
+  /** Every mesh found across every captured scene. */
+  function collectModels() {
+    var models = [];
+    var sceneIndex = 0;
+    scenes.forEach(function (sceneInfo, scene) {
+      var meshes = collectMeshes(scene);
+      for (var meshIndex = 0; meshIndex < meshes.length; meshIndex++) {
+        models.push(describeModel(meshes[meshIndex], sceneInfo, sceneIndex, meshIndex));
+      }
+      sceneIndex++;
+    });
+    return models;
+  }
+
+  /** Does a model pass the active text/size filter? */
+  function matchesFilter(model, filter) {
+    if (!filter) return true;
+
+    if (filter.text) {
+      var needle = String(filter.text).toLowerCase();
+      var haystack = (model.name + ' ' + model.scene + ' ' + model.materials.join(' ')).toLowerCase();
+      if (haystack.indexOf(needle) === -1) return false;
+    }
+
+    if (filter.minKB !== null && filter.minKB !== undefined && filter.minKB !== '') {
+      if (model.sizeBytes < Number(filter.minKB) * 1024) return false;
+    }
+    if (filter.maxKB !== null && filter.maxKB !== undefined && filter.maxKB !== '') {
+      if (model.sizeBytes > Number(filter.maxKB) * 1024) return false;
+    }
+
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
   // OBJ writer
   // ---------------------------------------------------------------------------
 
@@ -582,7 +698,162 @@
    * @param {Object} options
    * @returns {{ obj: string, mtl: string|null, stats: Object }}
    */
-  function buildOBJ(jobs, options) {
+  /**
+   * Converts one mesh (or one instance of it) into a transportable payload:
+   * world-space positions/normals/uvs plus the face list per material.
+   */
+  function extractModel(job, options) {
+    var mesh = job.mesh;
+    var geometry = mesh.geometry;
+    var position = geometry.attributes.position;
+    if (!position || !position.count) return null;
+
+    var count = position.count;
+    var world = job.worldMatrix;
+    var normalMatrix = normalMatrixFrom(world);
+
+    // --- positions ---------------------------------------------------------
+    var local = mesh.isSkinnedMesh ? skinnedPositions(mesh, count) : null;
+    if (!local) {
+      local = new Float32Array(count * 3);
+      for (var p = 0; p < count; p++) {
+        local[p * 3] = position.getX(p);
+        local[p * 3 + 1] = position.getY(p);
+        local[p * 3 + 2] = position.getZ(p);
+      }
+    }
+
+    var positions = new Float32Array(count * 3);
+    if (options.applyTransforms === false) {
+      positions.set(local);
+    } else {
+      for (var q = 0; q < count; q++) {
+        var t = applyMatrix4(world, local[q * 3], local[q * 3 + 1], local[q * 3 + 2]);
+        positions[q * 3] = t[0];
+        positions[q * 3 + 1] = t[1];
+        positions[q * 3 + 2] = t[2];
+      }
+    }
+
+    // --- normals -----------------------------------------------------------
+    var normalAttr = geometry.attributes.normal;
+    var normals = null;
+    if (options.normals !== 'none' && normalAttr && normalAttr.count === count) {
+      normals = new Float32Array(count * 3);
+      for (var n = 0; n < count; n++) {
+        var nx = normalAttr.getX(n), ny = normalAttr.getY(n), nz = normalAttr.getZ(n);
+        if (options.applyTransforms !== false && normalMatrix) {
+          var r = applyNormalMatrix(normalMatrix, nx, ny, nz);
+          nx = r[0]; ny = r[1]; nz = r[2];
+        }
+        normals[n * 3] = nx;
+        normals[n * 3 + 1] = ny;
+        normals[n * 3 + 2] = nz;
+      }
+    }
+
+    // --- uvs ----------------------------------------------------------------
+    var uvAttr = geometry.attributes.uv;
+    var uvs = null;
+    if (options.uvs !== 'none' && uvAttr && uvAttr.count === count) {
+      uvs = new Float32Array(count * 2);
+      for (var u = 0; u < count; u++) {
+        uvs[u * 2] = uvAttr.getX(u);
+        uvs[u * 2 + 1] = uvAttr.getY(u);
+      }
+    }
+
+    // --- faces --------------------------------------------------------------
+    var indices = buildIndexList(geometry);
+    var groups = geometryGroups(geometry, indices);
+
+    // Flat shading fallback: no normal attribute -> duplicate the vertices
+    // per triangle and compute the face normal ourselves.
+    if (options.normals === 'auto' && !normals) {
+      var expanded = expandTriangles(positions, uvs, groups);
+      positions = expanded.positions;
+      normals = expanded.normals;
+      uvs = expanded.uvs;
+      groups = [{ materialIndex: 0, indices: expanded.indices }];
+      count = positions.length / 3;
+    }
+
+    // --- one part per material ---------------------------------------------
+    var meshMaterials = materialsOf(mesh);
+    var parts = [];
+    for (var g = 0; g < groups.length; g++) {
+      var group = groups[g];
+      var matIndex = Math.min(group.materialIndex, meshMaterials.length - 1);
+      var info = describeMaterial(meshMaterials[matIndex], matIndex);
+      var faces = [];
+      for (var f = 0; f + 2 < group.indices.length; f += 3) {
+        faces.push(group.indices[f], group.indices[f + 1], group.indices[f + 2]);
+      }
+      parts.push({ material: info, faces: new Int32Array(faces) });
+    }
+
+    return {
+      name: job.name,
+      positions: positions,
+      normals: normals,
+      uvs: uvs,
+      parts: parts,
+      vertexCount: count
+    };
+  }
+
+  /** Builds one face reference: "v", "v/vt", "v//vn" or "v/vt/vn". */
+  function faceRef(v, vt, vn) {
+    var s = String(v);
+    if (vt === null && vn === null) return s;
+    if (vt === null) return s + '//' + vn;
+    if (vn === null) return s + '/' + vt;
+    return s + '/' + vt + '/' + vn;
+  }
+
+  /** Appends a model to the OBJ buffer, using the given global offsets. */
+  function writeModel(out, model, vOffset, vtOffset, vnOffset) {
+    var positions = model.positions;
+    var count = model.vertexCount;
+
+    out.push('o ' + model.name);
+
+    for (var v = 0; v < count; v++) {
+      out.push('v ' + fmt(positions[v * 3]) + ' ' + fmt(positions[v * 3 + 1]) + ' ' + fmt(positions[v * 3 + 2]));
+    }
+
+    if (model.uvs) {
+      for (var u = 0; u < count; u++) {
+        out.push('vt ' + fmt(model.uvs[u * 2]) + ' ' + fmt(model.uvs[u * 2 + 1]));
+      }
+    }
+
+    if (model.normals) {
+      for (var n = 0; n < count; n++) {
+        out.push('vn ' + fmt(model.normals[n * 3]) + ' ' + fmt(model.normals[n * 3 + 1]) + ' ' + fmt(model.normals[n * 3 + 2]));
+      }
+    }
+
+    for (var p = 0; p < model.parts.length; p++) {
+      var part = model.parts[p];
+      out.push('usemtl ' + part.material.name);
+      var faces = part.faces;
+      for (var f = 0; f < faces.length; f += 3) {
+        var a = faces[f], b = faces[f + 1], c = faces[f + 2];
+        out.push('f ' +
+          faceRef(a + vOffset + 1, model.uvs ? a + vtOffset + 1 : null, model.normals ? a + vnOffset + 1 : null) + ' ' +
+          faceRef(b + vOffset + 1, model.uvs ? b + vtOffset + 1 : null, model.normals ? b + vnOffset + 1 : null) + ' ' +
+          faceRef(c + vOffset + 1, model.uvs ? c + vtOffset + 1 : null, model.normals ? c + vnOffset + 1 : null));
+      }
+    }
+  }
+
+  /**
+   * @param {Array} models  list of payloads produced by extractModel()
+   * @param {Object} options
+   * @returns {{ obj: string, mtl: string|null, stats: Object }}
+   */
+  function buildOBJ(models, options) {
     var out = [];
     var stats = { meshes: 0, vertices: 0, faces: 0, normals: 0, uvs: 0, materials: 0, skipped: [] };
 
@@ -595,155 +866,35 @@
     out.push('');
 
     var materialTable = new Map();
-    var objectNames = new Set();
-    var vOffset = 0, vtOffset = 0, vnOffset = 0;
     var usedMaterials = [];
+    var vOffset = 0, vtOffset = 0, vnOffset = 0;
 
-    for (var j = 0; j < jobs.length; j++) {
-      var job = jobs[j];
-      var mesh = job.mesh;
-      var geometry = mesh.geometry;
-      var position = geometry.attributes.position;
-      if (!position || !position.count) {
-        stats.skipped.push((mesh.name || 'mesh') + ' (sem vertices)');
+    for (var j = 0; j < models.length; j++) {
+      var model = models[j];
+      if (!model) {
+        stats.skipped.push('(modelo vazio)');
         continue;
       }
 
-      var count = position.count;
-      var world = job.worldMatrix;
-      var normalMatrix = normalMatrixFrom(world);
+      writeModel(out, model, vOffset, vtOffset, vnOffset);
 
-      // --- positions -------------------------------------------------------
-      var localPositions = null;
-      if (mesh.isSkinnedMesh) {
-        localPositions = skinnedPositions(mesh, count);
-      }
-      if (!localPositions) {
-        localPositions = new Float32Array(count * 3);
-        for (var p = 0; p < count; p++) {
-          localPositions[p * 3 + 0] = position.getX(p);
-          localPositions[p * 3 + 1] = position.getY(p);
-          localPositions[p * 3 + 2] = position.getZ(p);
-        }
-      }
-
-      var worldPositions = new Float32Array(count * 3);
-      if (options.applyTransforms === false) {
-        worldPositions.set(localPositions);
-      } else {
-        for (var q = 0; q < count; q++) {
-          var t = applyMatrix4(world, localPositions[q * 3], localPositions[q * 3 + 1], localPositions[q * 3 + 2]);
-          worldPositions[q * 3 + 0] = t[0];
-          worldPositions[q * 3 + 1] = t[1];
-          worldPositions[q * 3 + 2] = t[2];
-        }
-      }
-
-      // --- normals ---------------------------------------------------------
-      var normalAttr = geometry.attributes.normal;
-      var worldNormals = null;
-      if (options.normals !== 'none' && normalAttr && normalAttr.count === count) {
-        worldNormals = new Float32Array(count * 3);
-        for (var n = 0; n < count; n++) {
-          var nx = normalAttr.getX(n), ny = normalAttr.getY(n), nz = normalAttr.getZ(n);
-          if (options.applyTransforms !== false && normalMatrix) {
-            var r = applyNormalMatrix(normalMatrix, nx, ny, nz);
-            nx = r[0]; ny = r[1]; nz = r[2];
-          }
-          worldNormals[n * 3 + 0] = nx;
-          worldNormals[n * 3 + 1] = ny;
-          worldNormals[n * 3 + 2] = nz;
-        }
-      }
-
-      // --- uvs -------------------------------------------------------------
-      var uvAttr = geometry.attributes.uv;
-      var hasUvs = options.uvs !== 'none' && uvAttr && uvAttr.count === count;
-
-      // --- indices ---------------------------------------------------------
-      var indices = buildIndexList(geometry);
-      var groups = geometryGroups(geometry, indices);
-
-      // Flat shading fallback: when there are no normals we duplicate the
-      // vertices per triangle and compute the face normal ourselves.
-      var expand = options.normals === 'auto' && !worldNormals;
-      if (expand) {
-        var expanded = expandTriangles(worldPositions, hasUvs ? uvAttr : null, groups);
-        worldPositions = expanded.positions;
-        worldNormals = expanded.normals;
-        if (hasUvs) {
-          uvAttr = expanded.uvs;
-          hasUvs = true;
-        }
-        groups = [{ materialIndex: 0, indices: expanded.indices }];
-        count = expanded.positions.length / 3;
-      }
-
-      // --- materials -------------------------------------------------------
-      var meshMaterials = materialsOf(mesh);
-      var objectName = uniqueName(
-        sanitizeName(mesh.name || 'mesh', 'mesh') + (job.suffix || ''),
-        objectNames
-      );
-
-      out.push('o ' + objectName);
-
-      // vertices
-      for (var v = 0; v < count; v++) {
-        out.push('v ' + fmt(worldPositions[v * 3]) + ' ' + fmt(worldPositions[v * 3 + 1]) + ' ' + fmt(worldPositions[v * 3 + 2]));
-      }
-      stats.vertices += count;
-
-      // uvs
-      if (hasUvs) {
-        for (var u = 0; u < count; u++) {
-          out.push('vt ' + fmt(uvAttr.getX(u)) + ' ' + fmt(uvAttr.getY(u)));
-        }
-        stats.uvs += count;
-        vtOffset += count;
-      }
-
-      // normals
-      if (worldNormals) {
-        for (var nn = 0; nn < count; nn++) {
-          out.push('vn ' + fmt(worldNormals[nn * 3]) + ' ' + fmt(worldNormals[nn * 3 + 1]) + ' ' + fmt(worldNormals[nn * 3 + 2]));
-        }
-        stats.normals += count;
-        vnOffset += count;
-      }
-
-      // faces
-      for (var g2 = 0; g2 < groups.length; g2++) {
-        var group = groups[g2];
-        var matIndex = Math.min(group.materialIndex, meshMaterials.length - 1);
-        var info = describeMaterial(meshMaterials[matIndex], matIndex);
+      for (var mp = 0; mp < model.parts.length; mp++) {
+        var info = model.parts[mp].material;
         if (!materialTable.has(info.name)) {
           materialTable.set(info.name, info);
           usedMaterials.push(info);
         }
-        out.push('usemtl ' + info.name);
-
-        var faceIndices = group.indices;
-        for (var f = 0; f + 2 < faceIndices.length; f += 3) {
-          var parts = [];
-          for (var k = 0; k < 3; k++) {
-            var idx = faceIndices[f + k] + vOffset + 1;
-            var ref = '' + idx;
-            if (hasUvs || worldNormals) {
-              ref += '/';
-              if (hasUvs) ref += (faceIndices[f + k] + vtOffset + 1);
-              else ref += '';
-              if (worldNormals) ref += '/' + (faceIndices[f + k] + vnOffset + 1);
-            }
-            parts.push(ref);
-          }
-          out.push('f ' + parts.join(' '));
-          stats.faces++;
-        }
       }
 
-      vOffset += count;
       stats.meshes++;
+      stats.vertices += model.vertexCount;
+      stats.faces += model.parts.reduce(function (acc, part) { return acc + part.faces.length / 3; }, 0);
+      if (model.normals) stats.normals += model.vertexCount;
+      if (model.uvs) stats.uvs += model.vertexCount;
+
+      vOffset += model.vertexCount;
+      if (model.uvs) vtOffset += model.vertexCount;
+      if (model.normals) vnOffset += model.vertexCount;
     }
 
     stats.materials = materialTable.size;
@@ -751,21 +902,21 @@
     // --- .mtl --------------------------------------------------------------
     var mtl = null;
     if (options.materials !== 'none' && materialTable.size) {
-      mtl = [];
-      mtl.push('# Material library generated by 3D Mesh Downloader v' + VERSION);
-      mtl.push('');
+      var mtlLines = [];
+      mtlLines.push('# Material library generated by 3D Mesh Downloader v' + VERSION);
+      mtlLines.push('');
       for (var mi = 0; mi < usedMaterials.length; mi++) {
         var m = usedMaterials[mi];
-        mtl.push('newmtl ' + m.name);
+        mtlLines.push('newmtl ' + m.name);
         if (m.color) {
-          mtl.push('Kd ' + fmt(m.color[0]) + ' ' + fmt(m.color[1]) + ' ' + fmt(m.color[2]));
+          mtlLines.push('Kd ' + fmt(m.color[0]) + ' ' + fmt(m.color[1]) + ' ' + fmt(m.color[2]));
         }
-        if (m.roughness != null) mtl.push('Pr ' + fmt(m.roughness));
-        if (m.metalness != null) mtl.push('Pm ' + fmt(m.metalness));
-        if (m.map) mtl.push('map_Kd ' + m.map);
-        mtl.push('');
+        if (m.roughness != null) mtlLines.push('Pr ' + fmt(m.roughness));
+        if (m.metalness != null) mtlLines.push('Pm ' + fmt(m.metalness));
+        if (m.map) mtlLines.push('map_Kd ' + m.map);
+        mtlLines.push('');
       }
-      mtl = mtl.join('\n');
+      mtl = mtlLines.join('\n');
     }
 
     if (mtl) {
@@ -777,7 +928,7 @@
   }
 
   /** Duplicates vertices per triangle and computes flat (face) normals. */
-  function expandTriangles(positions, uvAttr, groups) {
+  function expandTriangles(positions, uvData, groups) {
     var newPositions = [];
     var newNormals = [];
     var newUvs = [];
@@ -803,20 +954,14 @@
           var src = tri[t];
           newPositions.push(positions[src * 3], positions[src * 3 + 1], positions[src * 3 + 2]);
           newNormals.push(nx, ny, nz);
-          if (uvAttr) newUvs.push(uvAttr.getX(src), uvAttr.getY(src));
+          if (uvData) newUvs.push(uvData[src * 2], uvData[src * 2 + 1]);
           newIndices.push(newIndices.length);
         }
       }
     }
 
     var uvs = null;
-    if (uvAttr && newUvs.length) {
-      uvs = {
-        count: newUvs.length / 2,
-        getX: function (i) { return newUvs[i * 2]; },
-        getY: function (i) { return newUvs[i * 2 + 1]; }
-      };
-    }
+    if (uvData && newUvs.length) uvs = new Float32Array(newUvs);
 
     return {
       positions: new Float32Array(newPositions),
@@ -851,30 +996,37 @@
 
   function buildJobs(options) {
     var jobs = [];
-    var seen = new Set();
+    var filter = options.filter || {};
+    var include = Array.isArray(filter.include) ? new Set(filter.include) : null;
 
-    scenes.forEach(function (info, scene) {
-      var meshes = collectMeshes(scene);
-      meshes.forEach(function (mesh) {
-        if (seen.has(mesh)) return;
-        seen.add(mesh);
+    collectModels().forEach(function (model) {
+      var mesh = model.mesh;
 
-        var baseWorld = worldMatrixOf(mesh);
+      // explicit selection (the popup checkboxes)
+      if (include && !include.has(model.id)) return;
+      // text / size filter
+      if (!matchesFilter(model, filter)) return;
 
-        if (mesh.isInstancedMesh && options.expandInstances !== false && mesh.instanceMatrix) {
-          var total = mesh.instanceMatrix.count || 0;
+      var baseWorld = worldMatrixOf(mesh);
+
+      if (mesh.isInstancedMesh && options.expandInstances !== false && mesh.instanceMatrix) {
+        var total = mesh.instanceMatrix.count || 0;
+        // An InstancedMesh with zero instances renders nothing but still holds
+        // geometry: export its base mesh instead of dropping it silently.
+        if (total > 0) {
           for (var i = 0; i < total; i++) {
             jobs.push({
               mesh: mesh,
               worldMatrix: multiplyMatrices(baseWorld, instanceMatrixOf(mesh, i)),
-              suffix: '_inst' + i
+              suffix: '_inst' + i,
+              modelId: model.id
             });
           }
           return;
         }
+      }
 
-        jobs.push({ mesh: mesh, worldMatrix: baseWorld, suffix: '' });
-      });
+      jobs.push({ mesh: mesh, worldMatrix: baseWorld, suffix: '', modelId: model.id });
     });
 
     return jobs;
@@ -887,34 +1039,67 @@
       uvs: 'on',
       expandInstances: true,
       materials: 'on',
-      combine: true
+      combine: true,
+      filter: { text: '', minKB: null, maxKB: null, include: null }
     };
   }
 
   function mergeOptions(raw) {
     var opts = defaultOptions();
     if (!raw || typeof raw !== 'object') return opts;
+
     Object.keys(opts).forEach(function (key) {
-      if (Object.prototype.hasOwnProperty.call(raw, key) && raw[key] !== undefined && raw[key] !== null) {
-        opts[key] = raw[key];
-      }
+      if (!Object.prototype.hasOwnProperty.call(raw, key)) return;
+      if (key === 'filter') return; // handled below
+      if (raw[key] !== undefined && raw[key] !== null) opts[key] = raw[key];
     });
+
+    if (raw.filter && typeof raw.filter === 'object') {
+      var f = raw.filter;
+      if (f.text !== undefined && f.text !== null) opts.filter.text = String(f.text);
+      if (f.minKB !== undefined && f.minKB !== null && f.minKB !== '') opts.filter.minKB = Number(f.minKB);
+      if (f.maxKB !== undefined && f.maxKB !== null && f.maxKB !== '') opts.filter.maxKB = Number(f.maxKB);
+      if (Array.isArray(f.include)) opts.filter.include = f.include.slice();
+    }
+
     return opts;
   }
 
   function sceneInfo() {
     var list = [];
-    var total = 0;
+    var models = collectModels();
+
     scenes.forEach(function (info, scene) {
       var meshes = collectMeshes(scene);
-      total += meshes.length;
       list.push({
         name: info.name,
         meshes: meshes.length,
         meshNames: meshes.slice(0, 50).map(function (m) { return m.name || '(sem nome)'; })
       });
     });
-    return { sceneCount: scenes.size, count: total, scenes: list };
+
+    // only plain data goes through postMessage (structured clone)
+    var modelList = models.map(function (m) {
+      return {
+        id: m.id,
+        name: m.name,
+        scene: m.scene,
+        vertexCount: m.vertexCount,
+        faceCount: m.faceCount,
+        instances: m.instances,
+        materials: m.materials,
+        sizeBytes: m.sizeBytes,
+        bounds: m.bounds
+      };
+    });
+
+    return {
+      sceneCount: scenes.size,
+      count: models.length,
+      scenes: list,
+      models: modelList,
+      totalSizeBytes: modelList.reduce(function (acc, m) { return acc + m.sizeBytes; }, 0)
+    };
   }
 
   function runExport(rawOptions) {
@@ -930,8 +1115,26 @@
 
     var files = [];
 
+    // Extract every job into a payload once, so the combined and the
+    // per-mesh modes share the exact same geometry.
+    var models = [];
+    var usedNames = new Set();
+    jobs.forEach(function (job) {
+      var model = extractModel(job, options);
+      if (!model) return;
+      model.name = uniqueName(
+        sanitizeName(job.mesh.name || 'mesh', 'mesh') + (job.suffix || ''),
+        usedNames
+      );
+      models.push(model);
+    });
+
+    if (!models.length) {
+      return { ok: false, message: 'Nenhuma malha encontrada com os filtros atuais.' };
+    }
+
     if (options.combine !== false) {
-      var combined = buildOBJ(jobs, options);
+      var combined = buildOBJ(models, options);
       var objName = baseName + '.obj';
       downloadFile(objName, combined.obj, 'model/obj');
       files.push(objName);
@@ -946,18 +1149,16 @@
         ok: true,
         files: files,
         stats: combined.stats,
+        bytes: combined.obj.length + (combined.mtl ? combined.mtl.length : 0),
         message: files.length + ' arquivo(s) gerado(s).'
       };
     }
 
     // One file per mesh (legacy behaviour).
     var stats = { meshes: 0, vertices: 0, faces: 0, normals: 0, uvs: 0, materials: 0, skipped: [] };
-    var usedNames = new Set();
-    jobs.forEach(function (job, index) {
-      var single = buildOBJ([job], options);
-      var name = sanitizeName((job.mesh.name || 'mesh') + (job.suffix || ''), 'mesh');
-      name = uniqueName(name, usedNames);
-      var fileName = name + '.obj';
+    models.forEach(function (model) {
+      var single = buildOBJ([model], options);
+      var fileName = model.name + '.obj';
       downloadFile(fileName, single.obj, 'model/obj');
       files.push(fileName);
       stats.meshes += single.stats.meshes;

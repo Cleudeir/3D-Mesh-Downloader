@@ -12,7 +12,7 @@
       --muted: #6b7280;
       --line: #e4e7ee;
       --accent: #5b6cff;
-      --accent-dark: #4453e6;
+      --accent-soft: #eef0ff;
       --ok: #16a34a;
       --err: #dc2626;
     }
@@ -23,12 +23,13 @@
         --text: #e8eaf0;
         --muted: #9aa2b1;
         --line: #2b303c;
+        --accent-soft: #232841;
       }
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      width: 340px;
-      max-height: 600px;
+      width: 360px;
+      max-height: 620px;
       overflow-y: auto;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, sans-serif;
       background: var(--bg);
@@ -53,20 +54,75 @@
       border-radius: 10px;
       padding: 12px;
     }
-    .count-row { display: flex; align-items: baseline; gap: 8px; }
+    .count-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
     .count { font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
     .count-label { color: var(--muted); font-size: 12px; }
-    .scenes { margin-top: 8px; max-height: 110px; overflow-y: auto; }
-    .scenes div {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 3px 0;
+    .pill {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--muted);
+      background: var(--accent-soft);
+      border-radius: 20px;
+      padding: 2px 9px;
+      white-space: nowrap;
+    }
+
+    /* ---------- filtros ---------- */
+    .filter-row { display: flex; gap: 6px; }
+    input[type="search"], input[type="number"] {
+      font: inherit;
+      font-size: 12px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 6px 8px;
+      min-width: 0;
+    }
+    input[type="search"] { flex: 1; }
+    input[type="number"] { width: 64px; }
+    input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+    .quick { display: flex; gap: 6px; margin-top: 7px; }
+    .quick button {
+      flex: 1;
+      padding: 5px 6px;
+      font: inherit;
+      font-size: 11px;
+      color: var(--muted);
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .quick button:hover { color: var(--text); border-color: var(--accent); }
+
+    /* ---------- lista de modelos ---------- */
+    .models {
+      margin-top: 9px;
+      max-height: 190px;
+      overflow-y: auto;
       border-top: 1px solid var(--line);
+      padding-top: 6px;
+    }
+    .models label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 3px 2px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .models label:hover { background: var(--accent-soft); }
+    .models input { accent-color: var(--accent); flex: none; margin: 0; }
+    .mname {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
       font-size: 12px;
     }
-    .scenes div:first-child { border-top: 0; }
-    .scenes span:last-child { color: var(--muted); white-space: nowrap; }
+    .mmeta { color: var(--muted); font-size: 10.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .empty { color: var(--muted); font-size: 12px; padding: 8px 2px; }
 
     details { margin-top: 10px; }
     summary {
@@ -78,12 +134,25 @@
       user-select: none;
     }
     summary::-webkit-details-marker { display: none; }
-    summary::before { content: '▸ '; }
-    details[open] summary::before { content: '▾ '; }
+    summary::before { content: '\25B8 '; }
+    details[open] summary::before { content: '\25BE '; }
     .opts { margin-top: 8px; display: grid; gap: 6px; }
     label.opt { display: flex; align-items: flex-start; gap: 7px; cursor: pointer; font-size: 12px; }
     label.opt input { margin: 2px 0 0; accent-color: var(--accent); flex: none; }
     label.opt small { display: block; color: var(--muted); font-size: 11px; }
+
+    .status {
+      display: none;
+      margin: 0 12px 10px;
+      padding: 9px 11px;
+      border-radius: 8px;
+      font-size: 12px;
+      border: 1px solid transparent;
+      word-break: break-word;
+    }
+    .status.show { display: block; }
+    .status.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+    .status.err { background: color-mix(in srgb, var(--err) 14%, transparent); border-color: color-mix(in srgb, var(--err) 35%, transparent); }
 
     .actions { display: grid; gap: 7px; }
     button {
@@ -101,18 +170,6 @@
     button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; }
     button.ghost:hover { color: var(--text); }
     button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
-
-    .status {
-      display: none;
-      margin: 0 12px 10px;
-      padding: 9px 11px;
-      border-radius: 8px;
-      font-size: 12px;
-      border: 1px solid transparent;
-    }
-    .status.show { display: block; }
-    .status.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
-    .status.err { background: color-mix(in srgb, var(--err) 14%, transparent); border-color: color-mix(in srgb, var(--err) 35%, transparent); }
 
     .hint { margin: 0 12px 12px; color: var(--muted); font-size: 11px; }
     .hint code { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }
@@ -135,8 +192,25 @@
     <div class="count-row">
       <span class="count" id="meshCount">-</span>
       <span class="count-label" id="meshLabel">malhas encontradas</span>
+      <span class="pill" id="selectionPill">0 selecionadas</span>
     </div>
-    <div class="scenes" id="sceneList"></div>
+
+    <div style="margin-top: 10px;">
+      <div class="filter-row">
+        <input type="search" id="filterText" placeholder="filtrar por nome..." autocomplete="off">
+        <input type="number" id="filterMinKB" placeholder="min KB" min="0" step="1" title="tamanho minimo estimado">
+        <input type="number" id="filterMaxKB" placeholder="max KB" min="0" step="1" title="tamanho maximo estimado">
+      </div>
+      <div class="quick">
+        <button type="button" id="selectAll">Todos</button>
+        <button type="button" id="selectNone">Nenhum</button>
+        <button type="button" id="selectVisible">So os visiveis</button>
+      </div>
+    </div>
+
+    <div class="models" id="modelList">
+      <div class="empty">nenhuma malha encontrada</div>
+    </div>
 
     <details id="optionsDetails">
       <summary>Opcoes de exportacao</summary>
@@ -155,7 +229,7 @@
         </label>
         <label class="opt">
           <input type="checkbox" id="optUvs" checked>
-          <span>Exportar UVs (vt)</small>
+          <span>Exportar UVs (vt)</span>
         </label>
         <label class="opt">
           <input type="checkbox" id="optInstances" checked>

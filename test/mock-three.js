@@ -223,7 +223,19 @@ function buildMockScene() {
     boneInverses: [matrix4([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])]
   };
 
-  scene.children = [cube, group, instances, skinned];
+  // --- instances com zero instancias (regressao real: esqueleto do Tripo) ---
+  var emptyInstances = mesh('emptyInstances', {
+    attributes: {
+      position: positionAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+      normal: normalAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1])
+    },
+    index: indexAttribute([0, 1, 2]),
+    groups: []
+  }, { id: 11, name: 'Vazio', color: color(0.3, 0.3, 0.3) });
+  emptyInstances.isInstancedMesh = true;
+  emptyInstances.instanceMatrix = { count: 0, array: new Float32Array(0) };
+
+  scene.children = [cube, group, instances, skinned, emptyInstances];
   return scene;
 }
 

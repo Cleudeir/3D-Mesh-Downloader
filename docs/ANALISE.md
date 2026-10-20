@@ -198,3 +198,68 @@ frameworks ou builds que não despachem `observe` simplesmente não funcionam na
 | 10 | Nome de arquivo saneado e único | `src/injected.js` → `sanitizeName()`, `uniqueName()` |
 | 11 | `revokeObjectURL` só 30 s depois (e removendo o `<a>` do DOM) | `src/injected.js` → `downloadFile()` |
 | 12 | Sem `alert()`; status no popup | `src/popup.js` |
+
+| 13 | Filtro por nome e por tamanho, com seleção explícita por modelo | `src/injected.js` → `matchesFilter()`, `collectModels()` |
+| 14 | Deep link `#3dmesh=export&text=...&min=...&max=...` | `src/content.js` |
+| 15 | `InstancedMesh` com **zero** instâncias não é mais descartado | `src/injected.js` → `buildJobs()` |
+
+---
+
+## Bug encontrado no teste real
+
+O teste no navegador real (Tripo3D, three.js r183) expôs um bug que os testes
+sintéticos não pegaram, porque nenhum mock tinha um `InstancedMesh` sem instâncias.
+
+**Sintoma:** as malhas `skeleton-bone-bodies` e `skeleton-joint-spheres` do
+Tripo desapareceram da exportação. Filtros que só selecionavam essas duas
+malhas devolviam "nenhuma malha encontrada", e a exportação completa entregava
+66 malhas em vez de 68 — exatamente as duas que faltavam. A contagem de faces
+também denunciava: 352.493 em vez de 352.853.
+
+**Causa:** no `buildJobs()`, ao expandir instâncias, o laço `for (i = 0; i < total; i++)`
+não executa quando `instanceMatrix.count === 0` — e o `return` logo depois
+descartava a malha por completo:
+
+```js
+if (mesh.isInstancedMesh && ...) {
+  var total = mesh.instanceMatrix.count || 0;   // 0
+  for (var i = 0; i < total; i++) { ... }        // não entra
+  return;                                        // descarta a malha
+}
+```
+
+**Correção:** quando `total === 0`, a malha base é exportada normalmente
+(é o que ela de fato renderiza), e a contagem de instâncias relatada no popup
+passa a ser 1 em vez de 0.
+
+**Lição:** `InstancedMesh` não é sinônimo de "malha instanciada". O
+`isInstancedMesh` continua verdadeiro mesmo quando a malha é usada como
+geometria comum — e o `count` pode ser 0 em esqueletos montados por
+ferramentas de rigging. A cobertura de teste precisa de um mock com esse caso.
+
+---
+
+## Validação em navegador real
+
+Alvo: <https://studio.tripo3d.ai/workspace/generate/white-fluffy-dog-with-pink-bow-843c95e3-2c89-4ac4-997c-15a119fd0ea7>
+(three.js **r183**, declarado pela própria página em `window.__THREE__`).
+
+| Verificação | Resultado |
+|---|---|
+| Extensão injetada / hook ativo | sim / sim |
+| Malhas capturadas | 68 em 5 cenas |
+| Modelo principal | 182.412 vértices, 340.956 faces — **idêntico ao contador da página** |
+| Exportação completa | `.obj` de 36,5 MB (190.427 v, 352.853 f, 21 materiais) + `.mtl` |
+| Filtro texto `skeleton` | 2 malhas, 360 faces |
+| Filtro tamanho `max 50 KB` | 66 malhas, 3.833 faces |
+| Filtro tamanho `min 5000 KB` | 1 malha, 340.956 faces |
+| Seleção explícita (`s0_m0`) | 1 malha, 340.956 faces |
+
+A página define `window.__THREE__ = "183"` e **não** expõe `window.THREE`, ou seja,
+o namespace não é global — a extensão funciona só pelo hook
+`__THREE_DEVTOOLS__` (confirmando que o hook é o caminho essencial) e o
+patch em `renderer.render` é mesmo a rede de segurança necessária.
+
+Os downloads foram verificados pelos eventos `Browser.downloadWillBegin` /
+`Browser.downloadProgress` do CDP, com `Browser.setDownloadBehavior` apontando
+para uma pasta local.
