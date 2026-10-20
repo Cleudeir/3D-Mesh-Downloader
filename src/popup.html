@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Mesh Downloader</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --text: #1f2430;
+      --muted: #6b7280;
+      --line: #e4e7ee;
+      --accent: #5b6cff;
+      --accent-dark: #4453e6;
+      --ok: #16a34a;
+      --err: #dc2626;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #14161c;
+        --card: #1c1f27;
+        --text: #e8eaf0;
+        --muted: #9aa2b1;
+        --line: #2b303c;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 340px;
+      max-height: 600px;
+      overflow-y: auto;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 14px 16px 10px;
+    }
+    header svg { width: 22px; height: 22px; flex: none; color: var(--accent); }
+    header h1 { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+    header span { display: block; font-size: 11px; color: var(--muted); font-weight: 400; }
+
+    .card {
+      margin: 0 12px 10px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px;
+    }
+    .count-row { display: flex; align-items: baseline; gap: 8px; }
+    .count { font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+    .count-label { color: var(--muted); font-size: 12px; }
+    .scenes { margin-top: 8px; max-height: 110px; overflow-y: auto; }
+    .scenes div {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 3px 0;
+      border-top: 1px solid var(--line);
+      font-size: 12px;
+    }
+    .scenes div:first-child { border-top: 0; }
+    .scenes span:last-child { color: var(--muted); white-space: nowrap; }
+
+    details { margin-top: 10px; }
+    summary {
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--muted);
+      list-style: none;
+      user-select: none;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::before { content: '▸ '; }
+    details[open] summary::before { content: '▾ '; }
+    .opts { margin-top: 8px; display: grid; gap: 6px; }
+    label.opt { display: flex; align-items: flex-start; gap: 7px; cursor: pointer; font-size: 12px; }
+    label.opt input { margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+    label.opt small { display: block; color: var(--muted); font-size: 11px; }
+
+    .actions { display: grid; gap: 7px; }
+    button {
+      width: 100%;
+      padding: 10px 12px;
+      border: 0;
+      border-radius: 8px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: filter .15s ease, opacity .15s ease;
+    }
+    button.primary { background: var(--accent); color: #fff; }
+    button.primary:hover { filter: brightness(1.08); }
+    button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; }
+    button.ghost:hover { color: var(--text); }
+    button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+
+    .status {
+      display: none;
+      margin: 0 12px 10px;
+      padding: 9px 11px;
+      border-radius: 8px;
+      font-size: 12px;
+      border: 1px solid transparent;
+    }
+    .status.show { display: block; }
+    .status.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+    .status.err { background: color-mix(in srgb, var(--err) 14%, transparent); border-color: color-mix(in srgb, var(--err) 35%, transparent); }
+
+    .hint { margin: 0 12px 12px; color: var(--muted); font-size: 11px; }
+    .hint code { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }
+    .spin { display: inline-block; width: 11px; height: 11px; border: 2px solid rgba(255,255,255,.35);
+            border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -1px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2 2 7l10 5 10-5-10-5Z"/>
+      <path d="M2 17l10 5 10-5"/>
+      <path d="M2 12l10 5 10-5"/>
+    </svg>
+    <h1>3D Mesh Downloader <span id="version">v2.0.0</span></h1>
+  </header>
+
+  <div class="card">
+    <div class="count-row">
+      <span class="count" id="meshCount">-</span>
+      <span class="count-label" id="meshLabel">malhas encontradas</span>
+    </div>
+    <div class="scenes" id="sceneList"></div>
+
+    <details id="optionsDetails">
+      <summary>Opcoes de exportacao</summary>
+      <div class="opts">
+        <label class="opt">
+          <input type="checkbox" id="optTransforms" checked>
+          <span>Aplicar transformacoes do objeto
+            <small>Exporta em espaco de mundo (posicao/rotacao/escala)</small>
+          </span>
+        </label>
+        <label class="opt">
+          <input type="checkbox" id="optNormals" checked>
+          <span>Exportar normais (vn)
+            <small>Calcula normais planas quando a malha nao tem</small>
+          </span>
+        </label>
+        <label class="opt">
+          <input type="checkbox" id="optUvs" checked>
+          <span>Exportar UVs (vt)</small>
+        </label>
+        <label class="opt">
+          <input type="checkbox" id="optInstances" checked>
+          <span>Expandir InstancedMesh
+            <small>Uma malha por instancia, com a matriz de cada uma</small>
+          </span>
+        </label>
+        <label class="opt">
+          <input type="checkbox" id="optMaterials" checked>
+          <span>Exportar materiais (.mtl)</span>
+        </label>
+        <label class="opt">
+          <input type="checkbox" id="optCombine" checked>
+          <span>Unir tudo em um unico .obj
+            <small>Evita o limite de downloads multiplos do Chrome</small>
+          </span>
+        </label>
+      </div>
+    </details>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="actions" style="padding: 0 12px;">
+    <button class="primary" id="downloadBtn" disabled>Baixar malhas</button>
+    <button class="ghost" id="refreshBtn">Atualizar contagem</button>
+  </div>
+
+  <p class="hint">
+    Requer uma pagina com <code>Three.js</code>. Se a contagem ficar em 0, recarregue a pagina
+    (a extensao so captura cenas construidas depois que ela e injetada).
+  </p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

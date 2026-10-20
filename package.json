@@ -1,0 +1,16 @@
+{
+  "name": "3d-mesh-downloader",
+  "version": "2.0.0",
+  "description": "Extensao Chrome que exporta malhas Three.js de qualquer pagina para OBJ (com normais, UVs, materiais e transformacoes de mundo).",
+  "private": true,
+  "scripts": {
+    "test": "node test/run.js",
+    "build": "node tools/build.js",
+    "check": "node --check src/injected.js && node --check src/content.js && node --check src/popup.js && node test/run.js"
+  },
+  "keywords": ["threejs", "obj", "mesh", "chrome-extension", "manifest-v3", "3d"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
