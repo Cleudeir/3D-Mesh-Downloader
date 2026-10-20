@@ -179,6 +179,30 @@ async function shot(cdp, name) {
   console.log('  ' + JSON.stringify(await state()));
   console.log('  riscados: ' + await evaluate(popup,
     `document.querySelectorAll('#modelList label.excluded').length`));
+  console.log('  bloco de excluidas: ' + await evaluate(popup, `(() => {
+    const b = document.querySelector('.excluded-block');
+    if (!b) return 'ausente';
+    b.scrollTop = 9999;
+    const fim = b.scrollTop;
+    b.scrollTop = 0;
+    return JSON.stringify({
+      linhas: b.querySelectorAll('label').length,
+      alturaVisivel: b.clientHeight,
+      alturaConteudo: b.scrollHeight,
+      rolavel: b.scrollHeight > b.clientHeight,
+      maxScroll: fim,
+      temScrollProprio: b.scrollHeight > b.clientHeight && fim > 0
+    });
+  })()`));
+  console.log('  scroll x polling: ' + await evaluate(popup, `(async () => {
+    const b = document.querySelector('.excluded-block');
+    if (!b) return 'ausente';
+    b.scrollTop = 120;
+    const antes = b.scrollTop;
+    await new Promise((r) => setTimeout(r, 3500));
+    const depois = document.querySelector('.excluded-block').scrollTop;
+    return JSON.stringify({ antes: antes, depois: depois, preservado: Math.abs(depois - antes) < 2 });
+  })()`));
   console.log('  ordem: ' + await evaluate(popup, `(() => {
     const rows = Array.from(document.querySelectorAll('#modelList label'));
     const excluidas = rows.map((r) => r.classList.contains('excluded'));

@@ -95,10 +95,12 @@ arquivo exportado (`X_1`, quando vários modelos têm o mesmo nome) e esse
 nome sem o sufixo.
 
 Os excluídos vão para o **fim da lista**, atrás de um separador `EXCLUÍDAS` — a
-fila de exportação fica sempre no topo. Eles aparecem esmaçados e riscados, com
-o checkbox desabilitado; o botão `⊘` exclui um modelo rápido (adicionando o nome
-exato) e o `↺` desfaz. A exclusão tem **prioridade sobre a seleção**: um modelo
-excluído nunca entra no arquivo, mesmo que esteja marcado.
+fila de exportação fica sempre no topo. Esse bloco tem **rolagem própria**, e a
+prévia da aba Exclusão também: dá para percorrer os nomes sem arrastar a lista
+inteira. Eles aparecem esmaçados e riscados, com o checkbox desabilitado; o
+botão `⊘` exclui um modelo rápido (adicionando o nome exato) e o `↺` desfaz. A
+exclusão tem **prioridade sobre a seleção**: um modelo excluído nunca entra no
+arquivo, mesmo que esteja marcado.
 
 No modelo real do Tripo (68 malhas, ~50 delas são gizmos do editor):
 

@@ -315,6 +315,31 @@
       color: var(--muted);
       user-select: none;
     }
+    /* bloco de excluidas com rolagem propria */
+    .excluded-block {
+      max-height: 138px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      margin-top: 2px;
+      padding-right: 9px;
+      scrollbar-gutter: stable;
+      border-radius: 6px;
+    }
+    .models::-webkit-scrollbar,
+    .excluded-block::-webkit-scrollbar,
+    #excludePreview::-webkit-scrollbar { width: 6px; }
+    .models::-webkit-scrollbar-track,
+    .excluded-block::-webkit-scrollbar-track,
+    #excludePreview::-webkit-scrollbar-track { background: transparent; }
+    .models::-webkit-scrollbar-thumb,
+    .excluded-block::-webkit-scrollbar-thumb,
+    #excludePreview::-webkit-scrollbar-thumb {
+      background: color-mix(in srgb, var(--muted) 35%, transparent);
+      border-radius: 4px;
+    }
+    .models::-webkit-scrollbar-thumb:hover,
+    .excluded-block::-webkit-scrollbar-thumb:hover,
+    #excludePreview::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
     /* ---------- opcoes de exportacao ---------- */
     .opts { display: grid; gap: 6px; }

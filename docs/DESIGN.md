@@ -257,6 +257,22 @@ renderiza), e a contagem de instâncias relatada no popup passa a ser 1.
 `isInstancedMesh` continua verdadeiro mesmo quando a malha é usada como
 geometria comum, e o `count` pode ser 0.
 
+### Lista recriada a cada poll zerava o scroll
+
+O popup consulta a página a cada 2 s. Cada resposta reconstruía as listas, e o
+`scrollTop` voltava a zero — na prática era impossível rolar a lista de
+excluídas: ela voltava ao topo no instante seguinte.
+
+Corrigido em duas partes:
+
+1. a posição de rolagem é preservada ao redesenhar (lista, bloco de excluídas e
+   prévia da aba Exclusão);
+2. o popup só redesenha quando a **assinatura** das malhas muda (id, nome,
+   exclusão, vértices, faces, instâncias) — um poll idêntico não mexe no DOM.
+
+O bloco de excluídas ganhou ainda rolagem própria (`overscroll-behavior:
+contain`), para percorrer os nomes sem arrastar a lista de exportáveis junto.
+
 ### `__THREE_DEVTOOLS__` roubado pela página
 
 A primeira versão sobrescrevia o global da página. Uma página que definisse o

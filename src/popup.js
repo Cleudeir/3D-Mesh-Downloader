@@ -51,6 +51,7 @@
   var excludePatterns = [];   // names that must never be captured
   var pollTimer = null;
   var lastSignature = '';
+  var lastInfoSignature = null;
 
   var STORAGE_KEY = 'excludePatterns';
 
@@ -300,14 +301,26 @@
       ? 'malhas encontradas · ' + excluded + ' excluída(s)'
       : (info.count === 1 ? 'malha encontrada' : 'malhas encontradas');
 
-    renderList();
-    renderExcludePreview();
+    // O popup consulta a pagina a cada 2 s. Reconstruir as listas quando nada
+    // mudou zerava o scroll a cada poll (o usuario nao conseguia rolar as
+    // excluidas), entao so redesenha quando o conteudo realmente muda.
+    var signature = models.map(function (m) {
+      return m.id + '|' + m.name + '|' + (m.excluded ? 1 : 0) + '|' + (m.excludedBy || '') +
+        '|' + (m.vertexCount || 0) + '|' + (m.faceCount || 0) + '|' + (m.instances || 1);
+    }).join(',');
+
+    if (signature !== lastInfoSignature) {
+      lastInfoSignature = signature;
+      renderList();
+      renderExcludePreview();
+    }
     updateSelectionPill();
   }
 
   /** Models currently dropped by the exclusion list (the "Exclusão" tab preview). */
   function renderExcludePreview() {
     if (!els.excludePreview) return;
+    var scroll = els.excludePreview.scrollTop;
     var excluded = models.filter(function (m) { return m.excluded; });
 
     els.excludePreview.textContent = '';
@@ -316,6 +329,7 @@
       none.className = 'empty';
       none.textContent = 'nenhuma - nenhuma malha esta sendo excluida';
       els.excludePreview.appendChild(none);
+      els.excludePreview.scrollTop = 0;
       return;
     }
 
@@ -337,6 +351,8 @@
       row.appendChild(meta);
       els.excludePreview.appendChild(row);
     });
+
+    els.excludePreview.scrollTop = scroll;
   }
 
   function renderList() {
@@ -346,6 +362,8 @@
       return (a.excluded ? 1 : 0) - (b.excluded ? 1 : 0);
     });
     var scroll = els.list.scrollTop;
+    var previousBlock = els.list.querySelector('.excluded-block');
+    var blockScroll = previousBlock ? previousBlock.scrollTop : 0;
 
     els.list.textContent = '';
 
@@ -365,14 +383,21 @@
       return;
     }
 
-    var dividerDrawn = false;
+    var excludedCount = visible.filter(function (m) { return m.excluded; }).length;
+    var excludedBlock = null;
+
     visible.forEach(function (model) {
-      if (model.excluded && !dividerDrawn) {
-        dividerDrawn = true;
+      if (model.excluded && !excludedBlock) {
         var divider = document.createElement('div');
         divider.className = 'list-divider';
-        divider.textContent = 'excluídas';
+        divider.textContent = 'excluídas (' + excludedCount + ')';
         els.list.appendChild(divider);
+
+        // O bloco de excluidas rola sozinho: da para percorrer os nomes sem
+        // arrastar a lista de exportaveis junto.
+        excludedBlock = document.createElement('div');
+        excludedBlock.className = 'excluded-block';
+        els.list.appendChild(excludedBlock);
       }
 
       var label = document.createElement('label');
@@ -422,9 +447,10 @@
       label.appendChild(name);
       label.appendChild(meta);
       label.appendChild(excl);
-      els.list.appendChild(label);
+      (excludedBlock && model.excluded ? excludedBlock : els.list).appendChild(label);
     });
 
+    if (excludedBlock) excludedBlock.scrollTop = blockScroll;
     els.list.scrollTop = scroll;
   }
 
