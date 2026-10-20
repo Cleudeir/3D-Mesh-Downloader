@@ -101,24 +101,28 @@ nome sem o sufixo.
 
 ### Exclusão por tamanho
 
-Logo abaixo dos padrões, uma regra de tamanho:
+A aba Exclusão tem **duas listas independentes**:
 
-| Campo | O que faz |
-|---|---|
-| **Excluir por tamanho** | liga/desliga a regra (padrão: ligada) |
-| **maior que / menor que** | direção da comparação |
-| **KB** | limite (padrão: 50) |
+| Lista | Guarda | Como entra |
+|---|---|---|
+| **Por nome** | padrões com curinga (`X*`, `skeleton-*`) | você digita e clica em **Add** |
+| **Por tamanho** | nomes concretos (o nome de exportação de cada malha) | escolhe o critério e clica em **Adicionar** |
 
-O tamanho é o **estimado para o formato escolhido** na aba Exportar — o mesmo
-número que aparece na lista — então `50 KB` significa o mesmo no popup e no
-arquivo. Trocar o formato reavalia a regra; ela também fica salva no navegador.
+A lista por tamanho é **materializada**: os nomes entram **uma vez** e ficam.
+Não há reavaliação a cada consulta da página, então a lista não fica alternando
+entre excluído e não-excluído. Na primeira vez o popup monta a lista sozinho;
+depois disso, use **Adicionar** para pegar malhas novas.
 
-> O padrão é **menor que 50 KB**: descarta os gizmos e helpers pequenos da cena
-> (no Tripo são ~24 malhas de poucos KB) e deixa o modelo de verdade. Para o
-> contrário — descartar o que for grande — troque para **maior que**.
+O critério é aplicado sobre o **tamanho estimado no formato escolhido** na aba
+Exportar — o mesmo número que aparece na lista.
 
-Clicar no `↺` de um modelo excluído **pela regra de tamanho** leva direto à
-aba Exclusão, para ajustar o limite (não há padrão de nome para remover).
+> O padrão é **menor que 50 KB**: descarta os gizmos e helpers pequenos. No
+> Tripo isso costuma ser a maior parte da cena (79 malhas → 66 pequenas,
+> sobrando 13). Para o contrário, troque para **maior que**.
+
+O `×` de um nome devolve aquele modelo; o `↺` na lista de modelos faz o mesmo.
+Cada nome usa o **nome de exportação** (`X_1`, `X_2`…), que é único por malha —
+assim um modelo grande com nome repetido não cai junto com um pequeno homônimo.
 
 Os excluídos vão para o **fim da lista**, atrás de um separador `EXCLUÍDAS` — a
 fila de exportação fica sempre no topo. Esse bloco tem **rolagem própria**, e a

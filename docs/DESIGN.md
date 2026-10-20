@@ -135,30 +135,37 @@ conversão é feita com `Color.getHexString('srgb')`, com fallback manual
 | Filtro por tamanho | página + popup | estimativa **por formato** (`84 + 50 × triângulos` no STL) |
 | Seleção explícita | página | lista de ids enviada no `include` |
 | **Lista de exclusão** | página | padrões de nome, persistidos em `chrome.storage.local` |
-| **Regra de tamanho** | página | limite em KB por modelo, na direção escolhida (`>` ou `<`) |
+| **Lista por nome** | página | padrões com curinga, persistidos em `chrome.storage.local` |
+| **Lista por tamanho** | página + popup | nomes exatos (um por malha), materializados a partir de um limite em KB |
 
 O popup e a página usam **a mesma** regra e **os mesmos** números, então
 "filtrar por 500 KB" significa a mesma coisa dos dois lados.
 
-A regra de tamanho compara o **tamanho estimado no formato escolhido** — trocar
-para STL muda a estimativa e, com ela, quem entra ou sai. O padrão é
-`menor que 50 KB` (descarta os gizmos pequenos); a regra só é aplicada depois
-da lista de nomes: se um modelo casa com os dois, a marcação mostra o padrão de
-nome (mais específico), mas ele é contado uma única vez.
+### Duas listas, e por que a de tamanho é materializada
 
-### Tudo que o usuário configura é persistido
+A exclusão por tamanho começou como uma **regra dinâmica**: a página comparava o
+tamanho de cada malha a cada consulta e marcava o que estava abaixo do limite.
+O efeito colateral era visual — como a cena se ajusta enquanto carrega (meshes
+entram, saem, mudam de geometria), a mesma malha aparecia e desaparecia da lista
+a cada poll de 2 s: o "pisca-pisca".
 
-Formato, opções de exportação, padrões, regra de tamanho e a aba ativa ficam em
-`chrome.storage.local`. Sem isso, cada abertura do popup voltava ao padrão e o
-usuário perdia a configuração — inclusive o formato, que agora nasce em **STL**.
+Agora a lista é **materializada**: o popup varre os modelos com o critério
+escolhido e grava os **nomes de exportação** que casaram (`X_1`, `X_2`…, únicos
+por malha). A partir daí a página só compara nomes, então:
 
-A regra de tamanho viaja com um campo `v`: regras gravadas por versões antigas
-(em que o padrão era `maior que 50 KB`) são migradas para `menor que 50 KB`,
-porque a regra antiga não filtrava nada na prática (excluía só o modelo maior).
+- o conjunto excluído não muda entre polls;
+- remover um nome devolve aquele modelo, e ele **não volta** sozinho;
+- **Adicionar** roda a varredura de novo para pegar malhas novas;
+- usar o nome de exportação evita que um modelo grande com nome repetido caia
+  junto com um pequeno homônimo (na cena do Tripo são 31 nomes brutos para 75
+  nomes de exportação).
 
-Na lista do popup os exportáveis vêm primeiro e os excluídos vão para o fim,
-atrás de um separador — a fila de exportação não se mistura com o que foi
-descartado. O `sort` é estável, então a ordem original é preservada dentro de
+A varredura automática acontece **uma vez** (primeira vez que o popup vê a
+página); depois disso a lista é do usuário.
+
+A primeira tentativa usou o nome bruto da malha — e uma cena com 79 malhas
+excluía 65 delas a partir de 18 nomes, porque `X`, `Y` e `Z` se repetem muito.
+
 cada grupo.
 
 A exclusão tem **prioridade sobre a seleção**: um modelo excluído nunca entra

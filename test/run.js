@@ -624,6 +624,33 @@ section('16. Exclusao por tamanho');
 }
 
 // ---------------------------------------------------------------------------
+section('17. Lista de exclusao por tamanho (nomes exatos)');
+{
+  const { env } = setup();
+  const info = (opts) => env.request(Object.assign({ type: 'MDL_GET_INFO' }, opts))
+    .find((m) => m.type === 'MDL_INFO').info;
+
+  const porNome = info({ excludeExact: ['flat', 'skinned'] });
+  const excluidos = porNome.models.filter((m) => m.excluded);
+  eq('2 modelos excluidos pelos nomes da lista', excluidos.length, 2);
+  check('marcados como "tamanho"', excluidos.every((m) => m.excludedBy === 'tamanho'),
+    excluidos.map((m) => m.name + ':' + m.excludedBy).join(','));
+  eq('o contador bate', porNome.excludedCount, 2);
+
+  // a lista guarda nomes exatos, nao curingas
+  eq('nome exato nao vira prefixo', info({ excludeExact: ['fla'] }).excludedCount, 0);
+  eq('curinga nao e interpretado', info({ excludeExact: ['fl*'] }).excludedCount, 0);
+
+  // e vale na exportacao
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    filter: { include: ['s0_m0', 's0_m1'], excludeExact: ['flat'] }
+  });
+  const objects = out.obj.split('\n').filter((l) => l.startsWith('o ')).map((l) => l.slice(2)).sort();
+  eq('o arquivo sai sem os nomes da lista', objects.join(','), 'cube');
+}
+
+// ---------------------------------------------------------------------------
 section('Deep link: achar a aba mesmo quando o SPA troca de rota');
 {
   const vm = require('vm');

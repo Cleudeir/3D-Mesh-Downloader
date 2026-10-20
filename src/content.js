@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2.1.0';
+  var VERSION = '2.2.0';
 
   // --- page -> popup -------------------------------------------------------
   var infoWaiters = [];
@@ -66,6 +66,7 @@
       window.postMessage({
         type: 'MDL_GET_INFO',
         exclude: request.exclude || [],
+        excludeExact: request.excludeExact || [],
         excludeSize: request.excludeSize || null,
         format: request.format || 'obj'
       }, '*');

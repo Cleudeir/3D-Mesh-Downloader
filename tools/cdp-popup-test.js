@@ -186,63 +186,57 @@ async function shot(cdp, name) {
       .map(h => h.querySelector('.mname').textContent)`)));
   await shot(popup, 'popup-4-exclusao-com-padrao');
 
-  console.log('\n[4b] regra de tamanho');
+  console.log('\n[4b] lista por tamanho');
   await evaluate(popup, `document.getElementById('tab-exclusao').click()`);
   await sleep(300);
 
-  // instalacao nova: sem a regra salva, reabrir o popup deve cair no padrao
-  await evaluate(popup, `new Promise((r) => chrome.storage.local.remove('excludeSize', () => r(1)))`);
+  // estado de fabrica: sem lista e sem scan, o popup monta a lista na 1a vez
+  await evaluate(popup, `new Promise((r) => chrome.storage.local.remove(
+    ['sizeExcluded', 'sizeScanned', 'sizeRule', 'excludeSize'], () => r(1)))`);
   await popup.send('Page.reload');
   await sleep(3000);
-  console.log('  padrao de fabrica: ' + await evaluate(popup, `JSON.stringify({
-    ligada: document.getElementById('excludeSizeOn').checked,
+
+  let chips = 0;
+  for (let i = 0; i < 40; i++) {
+    await sleep(500);
+    chips = Number(await evaluate(popup, `document.querySelectorAll('#sizeList .pattern').length`)) || 0;
+    if (chips) break;
+  }
+  console.log('  criterio: ' + await evaluate(popup, `JSON.stringify({
     modo: document.getElementById('excludeSizeMode').value,
     kb: document.getElementById('excludeSizeKB').value
   })`));
-  await sleep(1800);
-  console.log('  excluidas por tamanho (padrao: menor que 50 KB): ' + await evaluate(popup, `(() => {
+  console.log('  nomes na lista: ' + chips);
+  console.log('  excluidas por tamanho: ' + await evaluate(popup, `(() => {
     const hits = Array.from(document.querySelectorAll('#excludePreview .hit'));
-    const porTamanho = hits.filter((h) => h.querySelector('.mmeta').textContent.indexOf('tamanho') === 0);
-    return JSON.stringify({ total: hits.length, porTamanho: porTamanho.length,
-      regra: porTamanho.length ? porTamanho[0].querySelector('.mmeta').textContent : null,
-      amostra: porTamanho.slice(0, 3).map((h) => h.querySelector('.mname').textContent) });
+    return hits.filter((h) => h.querySelector('.mmeta').textContent.indexOf('tamanho') === 0).length;
   })()`));
-  await shot(popup, 'popup-4b-tamanho-padrao');
+  check('a lista por tamanho e montada sozinha na primeira vez', chips > 0, String(chips));
+  await shot(popup, 'popup-4b-lista-tamanho');
 
-  // inverte para "maior que" e ve o efeito (so o modelo grande sai)
-  await evaluate(popup, `(() => {
-    const m = document.getElementById('excludeSizeMode');
-    m.value = 'above';
-    m.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  })()`);
+  // estabilidade: entre polls a lista nao pode mudar (o bug do "pisca")
+  const antes = await evaluate(popup, `JSON.stringify(
+    Array.from(document.querySelectorAll('#sizeList .pattern span')).map((s) => s.textContent))`);
+  await sleep(6000);
+  const depois = await evaluate(popup, `JSON.stringify(
+    Array.from(document.querySelectorAll('#sizeList .pattern span')).map((s) => s.textContent))`);
+  check('a lista fica estavel entre polls', antes === depois, antes.slice(0, 70) + ' vs ' + depois.slice(0, 70));
+
+  // remover um nome devolve o modelo (e ele nao volta sozinho)
+  const primeiro = JSON.parse(antes)[0];
+  await evaluate(popup, `document.querySelectorAll('#sizeList .pattern button')[0].click()`);
   await sleep(2000);
-  console.log('  agora maior que 50 KB: ' + await evaluate(popup, `(() => {
-    const hits = Array.from(document.querySelectorAll('#excludePreview .hit'));
-    const porTamanho = hits.filter((h) => h.querySelector('.mmeta').textContent.indexOf('tamanho') === 0);
-    return JSON.stringify({ total: hits.length, porTamanho: porTamanho.length,
-      regra: porTamanho.length ? porTamanho[0].querySelector('.mmeta').textContent : null });
-  })()`));
-  await shot(popup, 'popup-4c-tamanho-maior-que');
+  const voltou = await evaluate(popup, `Array.from(document.querySelectorAll('#sizeList .pattern span'))
+    .map((s) => s.textContent).indexOf(${JSON.stringify(primeiro)}) !== -1`);
+  check('remover um nome tira ele da lista e ele nao volta', voltou === false, 'ainda presente: ' + primeiro);
 
-  // migracao: regra gravada pela versao antiga (sem "v") vira "menor que"
-  await evaluate(popup, `new Promise((r) => chrome.storage.local.set(
-    { excludeSize: { enabled: true, mode: 'above', kb: 50 } }, () => r(1)))`);
-  await popup.send('Page.reload');
-  await sleep(2500);
-  console.log('  migracao (regra antiga, sem versao): ' + await evaluate(popup, `JSON.stringify({
-    modo: document.getElementById('excludeSizeMode').value,
-    ligada: document.getElementById('excludeSizeOn').checked
-  })`));
-
-  // desliga e volta ao padrao para nao afetar os passos seguintes
-  await evaluate(popup, `(() => {
-    const on = document.getElementById('excludeSizeOn');
-    on.checked = false;
-    on.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  })()`);
-  await sleep(1500);
+  // "Adicionar" recoloca (o criterio continua o mesmo)
+  await evaluate(popup, `document.getElementById('addSizeExclude').click()`);
+  await sleep(2000);
+  const reAdd = await evaluate(popup, `Array.from(document.querySelectorAll('#sizeList .pattern span'))
+    .map((s) => s.textContent).indexOf(${JSON.stringify(primeiro)}) !== -1`);
+  check('o botao Adicionar recoloca o nome', reAdd === true, 'faltou: ' + primeiro);
+  await shot(popup, 'popup-4c-lista-tamanho-adicionar');
 
   console.log('\n[5] volta para Modelos (badge e lista riscada)');
   await evaluate(popup, `document.getElementById('tab-modelos').click()`);
@@ -318,13 +312,20 @@ async function shot(cdp, name) {
   console.log('\n[8] download a partir do popup (filtro: mesh_1)');
   await popup.send('Emulation.setEmulatedMedia', { features: [] });
   await evaluate(popup, `document.getElementById('tab-modelos').click()`);
+  // a lista por tamanho pode ter engolido as malhas pequenas: limpa para o teste
+  await evaluate(popup, `(() => {
+    const c = document.getElementById('clearSizeExclude');
+    if (c) c.click();
+    return true;
+  })()`);
+  await sleep(1500);
   await evaluate(popup, `(() => {
     const input = document.getElementById('filterText');
     input.value = 'mesh_1';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
   })()`);
-  await sleep(400);
+  await sleep(600);
   console.log('  visiveis: ' + await evaluate(popup, `document.querySelectorAll('#modelList label').length`));
   console.log('  formato: ' + await evaluate(popup, `document.getElementById('format').value`));
   console.log('  botao: ' + await evaluate(popup, `document.getElementById('downloadBtn').textContent`));
@@ -390,8 +391,8 @@ async function shot(cdp, name) {
   console.log('  depois de reabrir: ' + await evaluate(popup, `JSON.stringify({
     formato: document.getElementById('format').value,
     normais: document.getElementById('optNormals').checked,
-    regra: document.getElementById('excludeSizeMode').value,
-    regraLigada: document.getElementById('excludeSizeOn').checked,
+    criterio: document.getElementById('excludeSizeMode').value + ' ' + document.getElementById('excludeSizeKB').value,
+    listaTamanho: document.querySelectorAll('#sizeList .pattern').length,
     aba: document.querySelector('.tab[aria-selected="true"]').dataset.tab
   })`));
   await shot(popup, 'popup-12-preferencias-lembradas');

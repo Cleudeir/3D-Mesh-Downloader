@@ -40,7 +40,9 @@
     clearExclude: document.getElementById('clearExclude'),
     patternList: document.getElementById('patternList'),
     excludePreview: document.getElementById('excludePreview'),
-    excludeSizeOn: document.getElementById('excludeSizeOn'),
+    sizeList: document.getElementById('sizeList'),
+    addSizeExclude: document.getElementById('addSizeExclude'),
+    clearSizeExclude: document.getElementById('clearSizeExclude'),
     excludeSizeMode: document.getElementById('excludeSizeMode'),
     excludeSizeKB: document.getElementById('excludeSizeKB'),
     tabBadgeModels: document.getElementById('tabBadgeModels'),
@@ -51,8 +53,10 @@
 
   var models = [];            // descriptors coming from the page
   var selection = new Set();  // ids the user wants to export
-  var excludePatterns = [];   // names that must never be captured
-  var excludeSize = { enabled: true, mode: 'below', kb: 50, v: 2 }; // "nao capturar" por tamanho
+  var excludePatterns = [];   // lista por nome (curingas)
+  var sizeExcluded = [];      // lista por tamanho (nomes exatos, materializados)
+  var sizeRule = { mode: 'below', kb: 50 }; // criterio usado para montar a lista
+  var sizeScanned = false;    // o scan automatico inicial ja rodou
   var pollTimer = null;
   var exportTimer = null;
   var lastSignature = '';
@@ -61,12 +65,11 @@
   var infoFailures = 0;      // falhas seguidas ao falar com a pagina
 
   var STORAGE_KEY = 'excludePatterns';
-  var STORAGE_KEY_SIZE = 'excludeSize';
+  var STORAGE_KEY_SIZE_LIST = 'sizeExcluded';
+  var STORAGE_KEY_SIZE_RULE = 'sizeRule';
+  var STORAGE_KEY_SCANNED = 'sizeScanned';
   var STORAGE_KEY_SETTINGS = 'settings';
-  // v2: o padrao passou de "maior que 50 KB" (que na pratica nao filtrava nada)
-  // para "menor que 50 KB", que descarta os gizmos pequenos.
-  var SIZE_RULE_VERSION = 2;
-  var DEFAULT_SIZE = { enabled: true, mode: 'below', kb: 50, v: SIZE_RULE_VERSION };
+  var DEFAULT_SIZE_RULE = { mode: 'below', kb: 50 };
   // STL e o padrao: e o formato que a maioria quer (impressao 3D) e evita o
   // .obj gigante com .mtl ao lado.
   var DEFAULT_SETTINGS = {
@@ -86,9 +89,11 @@
   function loadState(callback) {
     // Le as chaves cruas (array), sem objeto de defaults: com objeto,
     // chrome.storage.local.get() faz merge raso do default com o valor salvo e
-    // injeta campos que nao estao gravados (foi assim que a migracao da regra
-    // de tamanho deixou de rodar).
-    var keys = [STORAGE_KEY, STORAGE_KEY_SIZE, STORAGE_KEY_SETTINGS, ACTIVE_TAB_KEY];
+    // injeta campos que nao estao gravados.
+    var keys = [
+      STORAGE_KEY, STORAGE_KEY_SIZE_LIST, STORAGE_KEY_SIZE_RULE,
+      STORAGE_KEY_SCANNED, STORAGE_KEY_SETTINGS, ACTIVE_TAB_KEY, 'excludeSize'
+    ];
 
     function apply(items) {
       items = items || {};
@@ -96,24 +101,21 @@
       var stored = items[STORAGE_KEY];
       excludePatterns = Array.isArray(stored) ? stored.slice() : [];
 
-      var enabled = DEFAULT_SIZE.enabled;
-      var mode = DEFAULT_SIZE.mode;
-      var kb = DEFAULT_SIZE.kb;
+      var savedList = items[STORAGE_KEY_SIZE_LIST];
+      sizeExcluded = Array.isArray(savedList) ? savedList.filter(Boolean).map(String) : [];
+      sizeScanned = items[STORAGE_KEY_SCANNED] === true;
 
-      var size = items[STORAGE_KEY_SIZE];
-      if (size && typeof size === 'object') {
-        enabled = size.enabled !== false;
-        mode = size.mode === 'below' ? 'below' : 'above';
-        // regra salva por uma versao anterior: o padrao era "maior que 50 KB",
-        // que excluia so o modelo principal. Migra para "menor que".
-        if (Number(size.v) !== SIZE_RULE_VERSION) mode = 'below';
-        if (isFinite(Number(size.kb)) && Number(size.kb) >= 0) kb = Number(size.kb);
+      // criterio: chave nova; a antiga (excludeSize) serve de migracao
+      var rule = items[STORAGE_KEY_SIZE_RULE] || items.excludeSize;
+      sizeRule = { mode: DEFAULT_SIZE_RULE.mode, kb: DEFAULT_SIZE_RULE.kb };
+      if (rule && typeof rule === 'object') {
+        if (rule.mode === 'above' || rule.mode === 'below') sizeRule.mode = rule.mode;
+        if (isFinite(Number(rule.kb)) && Number(rule.kb) >= 0) sizeRule.kb = Number(rule.kb);
       }
 
-      excludeSize = { enabled: enabled, mode: mode, kb: kb, v: SIZE_RULE_VERSION };
-
       applySettings(items[STORAGE_KEY_SETTINGS]);
-      renderExcludeSize();
+      renderSizeRule();
+      renderSizeList();
       selectTab(items[ACTIVE_TAB_KEY] || 'modelos');
       callback();
     }
@@ -169,53 +171,111 @@
     }
   }
 
-  function saveExcludeSize() {
+  function saveSizeList() {
     try {
-      chrome.storage.local.set({ [STORAGE_KEY_SIZE]: excludeSize });
+      chrome.storage.local.set({ [STORAGE_KEY_SIZE_LIST]: sizeExcluded });
     } catch (e) {
       /* storage indisponivel */
     }
   }
 
-  /** Mirrors the size rule state into the inputs. */
-  function renderExcludeSize() {
-    if (!els.excludeSizeOn) return;
-    els.excludeSizeOn.checked = excludeSize.enabled;
-    els.excludeSizeMode.value = excludeSize.mode;
-    els.excludeSizeKB.value = String(excludeSize.kb);
-    els.excludeSizeMode.disabled = !excludeSize.enabled;
-    els.excludeSizeKB.disabled = !excludeSize.enabled;
+  function saveSizeRule() {
+    try {
+      var payload = {};
+      payload[STORAGE_KEY_SIZE_RULE] = sizeRule;
+      payload[STORAGE_KEY_SCANNED] = sizeScanned;
+      chrome.storage.local.set(payload);
+    } catch (e) {
+      /* storage indisponivel */
+    }
   }
 
-  /** Le a regra de tamanho dos campos e grava (sem falar com a pagina). */
-  function flushSizeRule() {
-    var kb = Number(els.excludeSizeKB.value);
-    if (!isFinite(kb) || kb < 0) kb = 0;
-    excludeSize = {
-      enabled: els.excludeSizeOn.checked,
-      mode: els.excludeSizeMode.value === 'below' ? 'below' : 'above',
-      kb: kb,
-      v: SIZE_RULE_VERSION
-    };
-    saveExcludeSize();
+  /** Espelha o criterio salvo nos campos. */
+  function renderSizeRule() {
+    if (!els.excludeSizeMode) return;
+    els.excludeSizeMode.value = sizeRule.mode;
+    els.excludeSizeKB.value = String(sizeRule.kb);
   }
 
-  function refreshSizeUI() {
-    els.excludeSizeMode.disabled = !excludeSize.enabled;
-    els.excludeSizeKB.disabled = !excludeSize.enabled;
+  /** Desenha a lista "por tamanho" (nomes concretos, com × para devolver). */
+  function renderSizeList() {
+    if (!els.sizeList) return;
+    els.sizeList.textContent = '';
+
+    if (!sizeExcluded.length) {
+      var none = document.createElement('span');
+      none.className = 'no-patterns';
+      none.textContent = 'nenhum nome';
+      els.sizeList.appendChild(none);
+      updateExcludeBadge();
+      return;
+    }
+
+    sizeExcluded.forEach(function (name) {
+      var chip = document.createElement('span');
+      chip.className = 'pattern';
+
+      var label = document.createElement('span');
+      label.textContent = name;
+      label.title = 'excluido por tamanho';
+
+      var x = document.createElement('button');
+      x.type = 'button';
+      x.textContent = '\u00d7';
+      x.title = 'devolver este modelo';
+      x.addEventListener('click', function () { removeSizeExcluded(name); });
+
+      chip.appendChild(label);
+      chip.appendChild(x);
+      els.sizeList.appendChild(chip);
+    });
+
     updateExcludeBadge();
   }
 
-  /** Le a regra de tamanho, persiste e recarrega o estado da pagina. */
-  function readSizeInputs() {
-    flushSizeRule();
-    refreshSizeUI();
+  /** Tira um nome da lista por tamanho (o modelo volta a ser exportavel). */
+  function removeSizeExcluded(name) {
+    var i = sizeExcluded.indexOf(name);
+    if (i === -1) return;
+    sizeExcluded.splice(i, 1);
+    saveSizeList();
+    renderSizeList();
     requestInfo();
   }
 
-  /** Badge = padroes de nome + a regra de tamanho (quando ligada). */
+  /**
+   * Varre os modelos e adiciona os que casam com o criterio de tamanho.
+   * Cada nome entra UMA vez e fica: nao existe reavaliacao a cada poll, entao
+   * a lista nao fica piscando.
+   */
+  function scanBySize() {
+    var format = currentFormat();
+    var limit = sizeRule.kb * 1024;
+    var added = 0;
+
+    models.forEach(function (model) {
+      var size = sizeForFormat(model, format);
+      var hit = sizeRule.mode === 'below' ? size < limit : size > limit;
+      if (!hit) return;
+      // exportName e unico por malha (X, X_1, X_2...): evita que um modelo
+      // grande com nome repetido caia junto com um pequeno homonimo
+      var entry = model.exportName || model.name;
+      if (sizeExcluded.indexOf(entry) !== -1) return;
+      sizeExcluded.push(entry);
+      added++;
+    });
+
+    if (added) {
+      saveSizeList();
+      renderSizeList();
+      requestInfo();
+    }
+    return added;
+  }
+
+  /** Badge = padroes de nome + nomes da lista de tamanho. */
   function updateExcludeBadge() {
-    setBadge(els.tabBadgeExclude, excludePatterns.length + (excludeSize.enabled ? 1 : 0));
+    setBadge(els.tabBadgeExclude, excludePatterns.length + sizeExcluded.length);
   }
 
   function addPattern(pattern) {
@@ -430,6 +490,15 @@
       ? 'malhas encontradas · ' + excluded + ' excluída(s)'
       : (info.count === 1 ? 'malha encontrada' : 'malhas encontradas');
 
+    // Primeiro contato com a pagina: monta a lista "por tamanho" uma unica vez.
+    // Depois disso ela so muda quando o usuario clica em Adicionar ou remove
+    // um nome - e por isso que a lista nao fica piscando.
+    if (!sizeScanned && models.length) {
+      sizeScanned = true;
+      saveSizeRule();
+      scanBySize();
+    }
+
     // O popup consulta a pagina a cada 2 s. Reconstruir as listas quando nada
     // mudou zerava o scroll a cada poll (o usuario nao conseguia rolar as
     // excluidas), entao so redesenha quando o conteudo realmente muda.
@@ -559,22 +628,18 @@
       excl.type = 'button';
       excl.className = 'excl';
       excl.textContent = model.excluded ? '\u21ba' : '\u2298';
-      var excludedBySize = model.excludedBy && String(model.excludedBy).indexOf('tamanho ') === 0;
+      var excludedBySize = model.excludedBy === 'tamanho';
       excl.title = model.excluded
         ? (excludedBySize
-            ? 'excluido pela regra de tamanho (clique para ajustar)'
+            ? 'excluido pela lista de tamanho (clique para devolver)'
             : 'remover da lista de exclusao (' + model.excludedBy + ')')
         : 'nao exportar este modelo';
       excl.addEventListener('click', function (event) {
         event.preventDefault();
         event.stopPropagation();
         if (model.excluded) {
-          if (excludedBySize) {
-            selectTab('exclusao');
-            els.excludeSizeKB.focus();
-          } else if (model.excludedBy) {
-            removePattern(model.excludedBy);
-          }
+          if (excludedBySize) removeSizeExcluded(model.exportName || model.name);
+          else if (model.excludedBy) removePattern(model.excludedBy);
         } else {
           addPattern(model.name);
         }
@@ -675,7 +740,7 @@
       chrome.tabs.sendMessage(tabId, {
         type: 'MDL_GET_INFO',
         exclude: excludePatterns,
-        excludeSize: excludeSize,
+        excludeExact: sizeExcluded,
         format: currentFormat()
       }, function () {
         if (chrome.runtime.lastError) {
@@ -709,11 +774,7 @@
         maxKB: filter.maxKB,
         include: selectedVisibleModels().map(function (m) { return m.id; }),
         exclude: excludePatterns.slice(),
-        excludeSize: {
-          enabled: excludeSize.enabled,
-          mode: excludeSize.mode,
-          kb: excludeSize.kb
-        }
+        excludeExact: sizeExcluded.slice()
       }
     };
   }
@@ -896,28 +957,45 @@
     requestInfo();
   });
 
-  // --- regra de tamanho -----------------------------------------------------
-  var sizeTimer = null;
-  function queueSizeChange() {
-    if (sizeTimer) clearTimeout(sizeTimer);
-    sizeTimer = setTimeout(requestInfo, 250);
+  // --- lista por tamanho ----------------------------------------------------
+  function onSizeRuleChange() {
+    var kb = Number(els.excludeSizeKB.value);
+    if (!isFinite(kb) || kb < 0) kb = 0;
+    sizeRule = {
+      mode: els.excludeSizeMode.value === 'below' ? 'below' : 'above',
+      kb: kb
+    };
+    saveSizeRule();
   }
-  els.excludeSizeOn.addEventListener('change', readSizeInputs);
-  els.excludeSizeMode.addEventListener('change', readSizeInputs);
-  els.excludeSizeKB.addEventListener('input', function () {
-    // grava a cada tecla (storage local e barato); so a consulta a pagina espera
-    flushSizeRule();
-    refreshSizeUI();
-    queueSizeChange();
+
+  els.excludeSizeMode.addEventListener('change', onSizeRuleChange);
+  els.excludeSizeKB.addEventListener('input', onSizeRuleChange);
+
+  els.addSizeExclude.addEventListener('click', function () {
+    onSizeRuleChange();
+    sizeScanned = true;
+    saveSizeRule();
+    var added = scanBySize();
+    showStatus(added
+      ? added + (added === 1 ? ' nome adicionado' : ' nomes adicionados') + ' a lista por tamanho.'
+      : 'Nenhum nome novo casou com o criterio.',
+      added ? 'ok' : '');
   });
-  els.excludeSizeKB.addEventListener('change', readSizeInputs);
+
+  els.clearSizeExclude.addEventListener('click', function () {
+    if (!sizeExcluded.length) return;
+    sizeExcluded = [];
+    saveSizeList();
+    renderSizeList();
+    requestInfo();
+  });
 
   // Poll while the popup stays open so the count follows the page.
   pollTimer = setInterval(requestInfo, 2000);
 
   window.addEventListener('unload', function () {
     if (pollTimer) clearInterval(pollTimer);
-    if (sizeTimer) clearTimeout(sizeTimer);
+    if (exportTimer) clearTimeout(exportTimer);
   });
 
   loadState(function () {

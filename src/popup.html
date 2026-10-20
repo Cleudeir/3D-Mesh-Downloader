@@ -216,6 +216,14 @@
     }
     button.tiny:hover { border-color: var(--accent); color: var(--accent); }
     .patterns { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+    #sizeList,
+    #patternList {
+      max-height: 118px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding-right: 6px;
+      scrollbar-gutter: stable;
+    }
     .pattern {
       display: inline-flex;
       align-items: center;
@@ -412,7 +420,7 @@
       <path d="M12 17.6v2.9"/>
       <path d="M9.6 18.9 12 21.3 14.4 18.9"/>
     </svg>
-    <h1>3D Mesh Downloader <span id="version">v2.1.0</span></h1>
+    <h1>3D Mesh Downloader <span id="version">v2.2.0</span></h1>
   </header>
 
   <nav class="tabstrip" role="tablist" aria-label="Secoes da extensao">
@@ -490,7 +498,7 @@
     <!-- ---------- aba: exclusao ---------- -->
     <section class="panel" id="panel-exclusao" role="tabpanel" aria-labelledby="tab-exclusao" hidden>
       <div class="exclude-head">
-        <span>Lista de exclusao</span>
+        <span>Exclusao por nome</span>
         <button type="button" id="clearExclude" class="link">limpar</button>
       </div>
       <div class="filter-row" style="margin-top:6px;">
@@ -500,25 +508,28 @@
       <div class="patterns" id="patternList"></div>
       <p class="hint" style="margin:7px 0 0;">
         <code>*</code> = qualquer trecho &middot; <code>?</code> = um caractere.<br>
-        <code>X*</code> pega a familia toda (X, X_1, XY) &middot; <code>X_1</code> pega so o segundo.<br>
-        A lista fica salva no navegador, entre sessoes.
+        <code>X*</code> pega a familia toda (X, X_1, XY) &middot; <code>X_1</code> pega so o segundo.
       </p>
 
       <div class="exclude-size">
-        <label class="opt">
-          <input type="checkbox" id="excludeSizeOn" checked>
-          <span>Excluir por tamanho
-            <small>Usa o tamanho estimado do formato escolhido na aba Exportar</small>
-          </span>
-        </label>
+        <div class="exclude-head">
+          <span>Exclusao por tamanho</span>
+          <button type="button" id="clearSizeExclude" class="link">limpar</button>
+        </div>
         <div class="filter-row" style="margin-top:6px;">
-          <select id="excludeSizeMode" title="direcao da regra">
+          <select id="excludeSizeMode" title="quem entra na lista">
             <option value="below">menor que</option>
             <option value="above">maior que</option>
           </select>
           <input type="number" id="excludeSizeKB" value="50" min="0" step="1" title="limite em KB">
           <span class="unit">KB</span>
+          <button type="button" id="addSizeExclude" class="tiny">Adicionar</button>
         </div>
+        <div class="patterns" id="sizeList"></div>
+        <p class="hint" style="margin:7px 0 0;">
+          Adiciona os nomes <b>uma vez</b>: entram na lista e ficam, mesmo que o tamanho
+          mude depois. Clique em <b>Adicionar</b> de novo para pegar malhas novas.
+        </p>
       </div>
       <div class="exclude-preview">
         <h3>Excluidas nesta pagina</h3>

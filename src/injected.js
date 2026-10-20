@@ -22,7 +22,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2.1.0';
+  var VERSION = '2.2.0';
   var INSTALL_FLAG = '__THREE_MESH_DOWNLOADER_INSTALLED__';
 
   // Guard against double injection (content script + manual run).
@@ -767,6 +767,25 @@
   }
 
   /**
+   * Exclusao por nome exato (a lista "por tamanho" guarda os nomes concretos
+   * que casaram com a regra). Sem curinga: e o nome da malha e pronto.
+   */
+  function exactExclusion(model, names) {
+    if (!names || !names.length) return null;
+    var candidates = [String(model && model.name ? model.name : '')];
+    if (model && model.exportName) candidates.push(String(model.exportName));
+
+    for (var i = 0; i < names.length; i++) {
+      var wanted = String(names[i] || '').trim();
+      if (!wanted) continue;
+      for (var c = 0; c < candidates.length; c++) {
+        if (candidates[c].toLowerCase() === wanted.toLowerCase()) return 'tamanho';
+      }
+    }
+    return null;
+  }
+
+  /**
    * Exclusao por tamanho.
    *
    *   { enabled: true, mode: 'above', kb: 50 } -> exclui o que for MAIOR que 50 KB
@@ -1232,6 +1251,8 @@
       if (include && !include.has(model.id)) return;
       // exclusion list (the "nao deve ser capturado" patterns)
       if (isExcluded(model, filter.exclude)) return;
+      // nomes exatos (lista "por tamanho" materializada)
+      if (exactExclusion(model, filter.excludeExact)) return;
       // size rule (o "nao capturar modelos acima/abaixo de N KB")
       if (sizeExclusion(model, filter.excludeSize, options.format)) return;
       // text / size filter
@@ -1271,7 +1292,7 @@
       materials: 'on',
       combine: true,
       format: 'obj',
-      filter: { text: '', minKB: null, maxKB: null, include: null, exclude: null, excludeSize: null }
+      filter: { text: '', minKB: null, maxKB: null, include: null, exclude: null, excludeExact: null, excludeSize: null }
     };
   }
 
@@ -1296,6 +1317,11 @@
           .map(function (p) { return String(p || '').trim(); })
           .filter(function (p) { return p.length > 0; });
       }
+      if (Array.isArray(f.excludeExact)) {
+        opts.filter.excludeExact = f.excludeExact
+          .map(function (p) { return String(p || '').trim(); })
+          .filter(function (p) { return p.length > 0; });
+      }
       if (f.excludeSize && typeof f.excludeSize === 'object') {
         var sizeRule = f.excludeSize;
         var kb = Number(sizeRule.kb);
@@ -1314,7 +1340,7 @@
     return opts;
   }
 
-  function sceneInfo(excludePatterns, excludeSize, format) {
+  function sceneInfo(excludePatterns, excludeSize, format, excludeExact) {
     var list = [];
     var models = collectModels();
 
@@ -1330,7 +1356,9 @@
     // only plain data goes through postMessage (structured clone)
     var excludedCount = 0;
     var modelList = models.map(function (m) {
-      var excludedBy = exclusionMatch(m, excludePatterns) || sizeExclusion(m, excludeSize, format);
+      var excludedBy = exclusionMatch(m, excludePatterns) ||
+        exactExclusion(m, excludeExact) ||
+        sizeExclusion(m, excludeSize, format);
       if (excludedBy) excludedCount++;
       return {
         id: m.id,
@@ -1510,7 +1538,7 @@
     if (!data || typeof data !== 'object') return;
 
     if (data.type === 'MDL_GET_INFO') {
-      var info = sceneInfo(data.exclude, data.excludeSize, data.format);
+      var info = sceneInfo(data.exclude, data.excludeSize, data.format, data.excludeExact);
       reply({ type: 'MDL_INFO', info: info, version: VERSION });
     } else if (data.type === 'MDL_DOWNLOAD') {
       var result;
