@@ -22,7 +22,20 @@ function createEnvironment(options) {
   class FakeBlob {
     constructor(parts) {
       this.parts = parts;
-      this.text = parts.join('');
+      // binary payloads (e.g. a binary STL) keep their bytes.
+      // The check is realm-agnostic: the ArrayBuffer is created inside the vm
+      // context, so `instanceof ArrayBuffer` would be false here.
+      var isBuffer = parts.length === 1 &&
+        Object.prototype.toString.call(parts[0]) === '[object ArrayBuffer]';
+      if (isBuffer) {
+        this.buffer = parts[0];
+        this.text = '';
+        this.isBinary = true;
+      } else {
+        this.text = parts.join('');
+        this.buffer = null;
+        this.isBinary = false;
+      }
     }
   }
 
@@ -47,7 +60,12 @@ function createEnvironment(options) {
         set download(v) { this._download = v; },
         get download() { return this._download; },
         click() {
-          downloads.push({ filename: this._download, content: blobs.get(this._href) || '' });
+          const blob = blobs.get(this._href);
+          downloads.push({
+            filename: this._download,
+            content: blob ? blob.text : '',
+            buffer: blob ? blob.buffer : null
+          });
         },
         remove() { this._removed = true; }
       };
@@ -85,7 +103,7 @@ function createEnvironment(options) {
     URL: {
       createObjectURL(blob) {
         const u = 'blob:fake' + (blobCounter++);
-        blobs.set(u, blob.text);
+        blobs.set(u, blob);
         return u;
       },
       revokeObjectURL() {}

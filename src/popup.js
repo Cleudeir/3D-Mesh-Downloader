@@ -28,7 +28,13 @@
     optUvs: document.getElementById('optUvs'),
     optInstances: document.getElementById('optInstances'),
     optMaterials: document.getElementById('optMaterials'),
-    optCombine: document.getElementById('optCombine')
+    optCombine: document.getElementById('optCombine'),
+    format: document.getElementById('format'),
+    stlNote: document.getElementById('stlNote'),
+    optNormalsRow: document.getElementById('optNormalsRow'),
+    optUvsRow: document.getElementById('optUvsRow'),
+    optMaterialsRow: document.getElementById('optMaterialsRow'),
+    combineLabel: document.getElementById('combineLabel')
   };
 
   var models = [];            // descriptors coming from the page
@@ -60,6 +66,18 @@
     return n.toLocaleString('pt-BR');
   }
 
+  /** The export format currently selected. */
+  function currentFormat() {
+    var value = els.format && els.format.value;
+    return value === 'stl' || value === 'stl-ascii' ? value : 'obj';
+  }
+
+  /** Size a model will take in the current format. */
+  function sizeForFormat(model, format) {
+    if (model.sizes && model.sizes[format] !== undefined) return model.sizes[format];
+    return model.sizeBytes || 0;
+  }
+
   /** The filter currently typed by the user. */
   function currentFilter() {
     return {
@@ -79,11 +97,13 @@
       if (haystack.indexOf(needle) === -1) return false;
     }
 
+    var size = sizeForFormat(model, currentFormat());
+
     if (filter.minKB !== null && filter.minKB !== undefined && filter.minKB !== '') {
-      if (model.sizeBytes < Number(filter.minKB) * 1024) return false;
+      if (size < Number(filter.minKB) * 1024) return false;
     }
     if (filter.maxKB !== null && filter.maxKB !== undefined && filter.maxKB !== '') {
-      if (model.sizeBytes > Number(filter.maxKB) * 1024) return false;
+      if (size > Number(filter.maxKB) * 1024) return false;
     }
 
     return true;
@@ -172,7 +192,7 @@
       meta.className = 'mmeta';
       var bits = [fmtCount(model.vertexCount) + 'v', fmtCount(model.faceCount) + 'f'];
       if (model.instances > 1) bits.push('x' + model.instances);
-      bits.push('~' + fmtSize(model.sizeBytes));
+      bits.push('~' + fmtSize(sizeForFormat(model, currentFormat())));
       meta.textContent = bits.join(' · ');
 
       label.appendChild(box);
@@ -186,10 +206,23 @@
 
   function updateSelectionPill() {
     var selected = selectedVisibleModels();
-    var total = selected.reduce(function (acc, m) { return acc + m.sizeBytes; }, 0);
+    var format = currentFormat();
+    var total = selected.reduce(function (acc, m) { return acc + sizeForFormat(m, format); }, 0);
     els.pill.textContent = selected.length + '/' + models.length + ' · ~' + fmtSize(total);
     els.download.disabled = selected.length === 0;
     els.download.textContent = selected.length === 1 ? 'Baixar 1 malha' : 'Baixar ' + selected.length + ' malhas';
+  }
+
+  /** OBJ-only options do not apply to STL: hide them and explain why. */
+  function applyFormatToOptions() {
+    var isSTL = currentFormat() !== 'obj';
+    els.stlNote.style.display = isSTL ? 'block' : 'none';
+    els.optNormalsRow.style.display = isSTL ? 'none' : '';
+    els.optUvsRow.style.display = isSTL ? 'none' : '';
+    els.optMaterialsRow.style.display = isSTL ? 'none' : '';
+    els.combineLabel.firstChild.nodeValue = isSTL
+      ? 'Unir tudo em um unico arquivo STL'
+      : 'Unir tudo em um unico .obj';
   }
 
   // ---------------------------------------------------------------------------
@@ -217,11 +250,10 @@
     }
 
     if (wantedUrl) {
-      chrome.tabs.query({}, function (tabs) {
-        var match = (tabs || []).filter(function (tab) {
-          return tab.url && tab.url.indexOf(wantedUrl) === 0;
-        })[0];
-        callback(match ? match.id : null);
+      // Sem a permissao "tabs", tab.url chega vazio: quem procura a aba e o
+      // service worker, perguntando as content scripts pelo location.href.
+      chrome.runtime.sendMessage({ type: 'MDL_FIND_TAB', url: wantedUrl }, function (response) {
+        callback(response && response.tabId ? response.tabId : null);
       });
       return;
     }
@@ -264,6 +296,7 @@
       expandInstances: els.optInstances.checked,
       materials: els.optMaterials.checked ? 'on' : 'none',
       combine: els.optCombine.checked,
+      format: currentFormat(),
       filter: {
         text: filter.text,
         minKB: filter.minKB,
@@ -357,6 +390,12 @@
     updateSelectionPill();
   }
 
+  els.format.addEventListener('change', function () {
+    applyFormatToOptions();
+    renderList();
+    updateSelectionPill();
+  });
+
   els.filterText.addEventListener('input', onFilterChange);
   els.filterMinKB.addEventListener('input', onFilterChange);
   els.filterMaxKB.addEventListener('input', onFilterChange);
@@ -387,5 +426,6 @@
     if (pollTimer) clearInterval(pollTimer);
   });
 
+  applyFormatToOptions();
   requestInfo();
 })();

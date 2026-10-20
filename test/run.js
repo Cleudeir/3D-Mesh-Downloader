@@ -388,6 +388,102 @@ section('13. InstancedMesh com zero instancias nao pode sumir');
   eq('e reporta 1 instancia (nao 0)', empty.instances, 1);
 }
 
+
+// ---------------------------------------------------------------------------
+section('14. Exportacao STL');
+{
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'auto', uvs: 'on', materials: 'on',
+    format: 'stl'
+  });
+
+  check('exportou com sucesso', out.result && out.result.ok, JSON.stringify(out.result));
+  eq('1 arquivo .stl', out.files.length, 1);
+  check('nome com extensao .stl', out.files[0].filename.endsWith('.stl'), out.files[0].filename);
+  check('nenhum .obj gerado', !out.files.some((f) => f.filename.endsWith('.obj')), out.files.map((f) => f.filename).join(','));
+
+  // conteudo binario
+  const buf = out.files[0].buffer;
+  const view = new DataView(buf, 0, buf.byteLength);
+  const triangles = view.getUint32(80, true);
+  const header = new TextDecoder().decode(new Uint8Array(buf, 0, 80));
+
+  eq('cabecalho com 80 bytes', header.length, 80);
+  check('cabecalho identifica a extensao', header.startsWith('3D Mesh Downloader'), header.slice(0, 40));
+  eq('tamanho do buffer = 84 + 50 * triangulos', buf.byteLength, 84 + triangles * 50);
+  eq('numero de triangulos (7 faces - 1 degenerada)', triangles, 6);
+
+  // primeiro facet: normal + 3 vertices
+  const n = [view.getFloat32(84, true), view.getFloat32(88, true), view.getFloat32(92, true)];
+  const v1 = [view.getFloat32(96, true), view.getFloat32(100, true), view.getFloat32(104, true)];
+  check('normal do facet tem comprimento 1', Math.abs(Math.hypot(n[0], n[1], n[2]) - 1) < 1e-5, JSON.stringify(n));
+  check('primeiro vertice do facet e (-1,-1,0) escalado 2x e rotacionado 90',
+    Math.abs(v1[0] - 12) < 1e-4 && Math.abs(v1[1] - 18) < 1e-4 && Math.abs(v1[2] - 30) < 1e-4, JSON.stringify(v1));
+  eq('attribute byte count = 0', view.getUint16(84 + 48, true), 0);
+}
+{
+  // STL ASCII
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'auto', uvs: 'on', materials: 'on',
+    format: 'stl-ascii'
+  });
+
+  const text = out.files[0].content;
+  check('comeca com solid', text.startsWith('solid '), text.slice(0, 30));
+  check('termina com endsolid', text.trim().endsWith('endsolid ' + text.split('\n')[0].replace('solid ', '')));
+  eq('6 facetas', (text.match(/facet normal/g) || []).length, 6);
+  eq('18 vertices', (text.match(/vertex /g) || []).length, 18);
+  check('tem outer loop/endloop', text.includes('outer loop') && text.includes('endloop'));
+}
+{
+  // o formato muda o tamanho estimado usado pelo filtro
+  const { env } = setup();
+  const replies = env.request({ type: 'MDL_GET_INFO' });
+  const info = replies.find((m) => m.type === 'MDL_INFO').info;
+  const cube = info.models.find((m) => m.name === 'cube');
+  check('estimativa OBJ', cube.sizes.obj === 532, String(cube.sizes.obj));
+  check('estimativa STL binario = 84 + 50*2', cube.sizes.stl === 184, String(cube.sizes.stl));
+  check('estimativa STL ascii > STL binario', cube.sizes['stl-ascii'] > cube.sizes.stl);
+  check('sizeBytes continua sendo o valor do OBJ', cube.sizeBytes === cube.sizes.obj);
+}
+{
+  // filtro por tamanho usando o formato escolhido (um arquivo por modelo)
+  const { env } = setup();
+  const out = download(env, {
+    combine: false, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    format: 'stl', filter: { maxKB: 0.2 }
+  });
+  const names = out.files.map((f) => f.filename.replace('.stl', '')).sort();
+  // no OBJ: cube 532 B, instances 692 B, flat 256 B, skinned 286 B, vazio 256 B
+  // no STL: 84 + 50 * faces -> instances (268 B) e a unica que passa de 200 KB
+  eq('com STL, o filtro de 200 KB usa o tamanho em STL', names.join(','), 'cube,emptyInstances,flat,skinned');
+}
+{
+  // um arquivo por modelo em STL
+  const { env } = setup();
+  const out = download(env, {
+    combine: false, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none',
+    format: 'stl'
+  });
+  eq('6 arquivos .stl (um por modelo/instancia)', out.files.length, 6);
+  check('todos com extensao .stl', out.files.every((f) => f.filename.endsWith('.stl')));
+}
+{
+  // triangulos degenerados sao descartados
+  const { env } = setup();
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'auto', uvs: 'on', materials: 'on',
+    format: 'stl'
+  });
+  const buf = out.files[0].buffer;
+  const view = new DataView(buf, 0, buf.byteLength);
+  const triangles = view.getUint32(80, true);
+  // o mock "skinned" tem a face (0,1,0) -> degenerada -> descartada
+  eq('triangulos degenerados foram removidos (7 faces - 1 degenerada)', triangles, 6);
+}
+
 // ---------------------------------------------------------------------------
 console.log('\n' + '-'.repeat(58));
 console.log('  ' + passed + ' passed, ' + failed + ' failed');

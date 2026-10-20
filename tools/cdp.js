@@ -161,6 +161,14 @@ function formatConsole(msg) {
     console.log('navegando para ' + process.argv[3]);
     process.exit(0);
   }
+
+  if (mode === 'screenshot') {
+    const shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    const out = process.argv[4] || 'screenshot.png';
+    fs.writeFileSync(out, Buffer.from(shot.result.data, 'base64'));
+    console.log('screenshot -> ' + out);
+    process.exit(0);
+  }
 })().catch((e) => {
   console.error('falha:', e);
   process.exit(1);

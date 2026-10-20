@@ -575,13 +575,35 @@
    * Used by the "size" filter, so an estimate is enough - the exact file
    * size is reported after the export.
    */
+  /**
+   * Estimated size of the file each mesh would produce, per export format.
+   * Used by the "size" filter, so an estimate is enough.
+   *
+   *   obj       - "v"/"vt"/"vn"/"f" lines plus the object headers
+   *   stl       - binary STL: 84 byte header + 50 bytes per triangle
+   *   stl-ascii - ASCII STL: roughly 70 bytes per triangle
+   */
   function estimateModelSize(mesh, vertexCount, faceCount, instances) {
     var hasNormals = !!mesh.geometry.attributes.normal;
     var hasUvs = !!mesh.geometry.attributes.uv;
-    var bytes = vertexCount * 30 + faceCount * 38 + 128;
-    if (hasNormals) bytes += vertexCount * 30;
-    if (hasUvs) bytes += vertexCount * 22;
-    return Math.round(bytes * (instances || 1));
+    var n = instances || 1;
+
+    var obj = vertexCount * 30 + faceCount * 38 + 128;
+    if (hasNormals) obj += vertexCount * 30;
+    if (hasUvs) obj += vertexCount * 22;
+
+    return {
+      obj: Math.round(obj * n),
+      stl: Math.round((84 + faceCount * 50) * n),
+      'stl-ascii': Math.round((64 + faceCount * 72) * n)
+    };
+  }
+
+  /** The size a model will take in the given export format. */
+  function sizeForFormat(model, format) {
+    if (!model.sizes) return model.sizeBytes || 0;
+    var key = format === 'stl' || format === 'stl-ascii' ? format : 'obj';
+    return model.sizes[key] || model.sizeBytes || 0;
   }
 
   /** World-space bounding box of a mesh (local bbox corners transformed). */
@@ -633,6 +655,7 @@
     if (instances < 1) instances = 1; // InstancedMesh vazio: exporta a malha base
     var materials = [];
     materialsOf(mesh).forEach(function (m, i) { materials.push(describeMaterial(m, i).name); });
+    var sizes = estimateModelSize(mesh, vertexCount, faceCount, instances);
 
     return {
       id: 's' + sceneIndex + '_m' + meshIndex,
@@ -643,7 +666,8 @@
       faceCount: faceCount,
       instances: instances,
       materials: materials,
-      sizeBytes: estimateModelSize(mesh, vertexCount, faceCount, instances),
+      sizeBytes: sizes.obj,
+      sizes: sizes,
       bounds: modelBounds(mesh)
     };
   }
@@ -663,7 +687,7 @@
   }
 
   /** Does a model pass the active text/size filter? */
-  function matchesFilter(model, filter) {
+  function matchesFilter(model, filter, format) {
     if (!filter) return true;
 
     if (filter.text) {
@@ -672,11 +696,13 @@
       if (haystack.indexOf(needle) === -1) return false;
     }
 
+    var size = sizeForFormat(model, format);
+
     if (filter.minKB !== null && filter.minKB !== undefined && filter.minKB !== '') {
-      if (model.sizeBytes < Number(filter.minKB) * 1024) return false;
+      if (size < Number(filter.minKB) * 1024) return false;
     }
     if (filter.maxKB !== null && filter.maxKB !== undefined && filter.maxKB !== '') {
-      if (model.sizeBytes > Number(filter.maxKB) * 1024) return false;
+      if (size > Number(filter.maxKB) * 1024) return false;
     }
 
     return true;
@@ -970,8 +996,126 @@
       indices: newIndices
     };
   }
-
   // ---------------------------------------------------------------------------
+  // STL writer
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Flattens the models into triangles in world space.
+   *
+   * STL has no notion of objects, materials, UVs or vertex normals: every
+   * facet carries a single normal, computed from its own three vertices, and
+   * all the meshes are merged into a single soup of triangles.
+   *
+   * Returns a Float32Array with 12 floats per triangle:
+   *   ax ay az | bx by bz | cx cy cz | nx ny nz
+   */
+  function collectTriangles(models) {
+    var count = 0;
+
+    // first pass: how many valid (non degenerate) triangles there are
+    for (var m = 0; m < models.length; m++) {
+      var model = models[m];
+      for (var part = 0; part < model.parts.length; part++) {
+        var faces = model.parts[part].faces;
+        for (var f = 0; f + 2 < faces.length; f += 3) {
+          if (triangleNormal(model.positions, faces[f], faces[f + 1], faces[f + 2])) count++;
+        }
+      }
+    }
+
+    var out = new Float32Array(count * 12);
+    var w = 0;
+
+    for (var m2 = 0; m2 < models.length; m2++) {
+      var model2 = models[m2];
+      var p = model2.positions;
+      for (var part2 = 0; part2 < model2.parts.length; part2++) {
+        var faces2 = model2.parts[part2].faces;
+        for (var f2 = 0; f2 + 2 < faces2.length; f2 += 3) {
+          var ia = faces2[f2], ib = faces2[f2 + 1], ic = faces2[f2 + 2];
+          var n = triangleNormal(p, ia, ib, ic);
+          if (!n) continue;
+
+          out[w++] = p[ia * 3]; out[w++] = p[ia * 3 + 1]; out[w++] = p[ia * 3 + 2];
+          out[w++] = p[ib * 3]; out[w++] = p[ib * 3 + 1]; out[w++] = p[ib * 3 + 2];
+          out[w++] = p[ic * 3]; out[w++] = p[ic * 3 + 1]; out[w++] = p[ic * 3 + 2];
+          out[w++] = n[0]; out[w++] = n[1]; out[w++] = n[2];
+        }
+      }
+    }
+
+    return out;
+  }
+
+  /** Facet normal of a triangle, or null when the triangle is degenerate. */
+  function triangleNormal(p, ia, ib, ic) {
+    var ax = p[ia * 3], ay = p[ia * 3 + 1], az = p[ia * 3 + 2];
+    var bx = p[ib * 3], by = p[ib * 3 + 1], bz = p[ib * 3 + 2];
+    var cx = p[ic * 3], cy = p[ic * 3 + 1], cz = p[ic * 3 + 2];
+
+    var ux = bx - ax, uy = by - ay, uz = bz - az;
+    var vx = cx - ax, vy = cy - ay, vz = cz - az;
+    var nx = uy * vz - uz * vy;
+    var ny = uz * vx - ux * vz;
+    var nz = ux * vy - uy * vx;
+
+    var len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (!len || !isFinite(len)) return null;
+    return [nx / len, ny / len, nz / len];
+  }
+
+  /** Binary STL: 80 byte header + 4 byte triangle count + 50 bytes per facet. */
+  function buildBinarySTL(models) {
+    var tris = collectTriangles(models);
+    var count = tris.length / 12;
+
+    var buffer = new ArrayBuffer(84 + count * 50);
+    var view = new DataView(buffer);
+
+    var header = ('3D Mesh Downloader v' + VERSION + ' - ' + (location.hostname || 'scene')).slice(0, 79);
+    for (var i = 0; i < header.length; i++) view.setUint8(i, header.charCodeAt(i) & 0x7f);
+    view.setUint32(80, count, true);
+
+    var off = 84;
+    for (var t = 0; t < count; t++) {
+      var b = t * 12;
+      view.setFloat32(off, tris[b + 9], true);
+      view.setFloat32(off + 4, tris[b + 10], true);
+      view.setFloat32(off + 8, tris[b + 11], true);
+      for (var v = 0; v < 3; v++) {
+        view.setFloat32(off + 12 + v * 12, tris[b + v * 3], true);
+        view.setFloat32(off + 16 + v * 12, tris[b + v * 3 + 1], true);
+        view.setFloat32(off + 20 + v * 12, tris[b + v * 3 + 2], true);
+      }
+      view.setUint16(off + 48, 0, true);
+      off += 50;
+    }
+
+    return { buffer: buffer, triangles: count };
+  }
+
+  /** ASCII STL: readable, but roughly 40% bigger than the binary one. */
+  function buildAsciiSTL(models) {
+    var tris = collectTriangles(models);
+    var count = tris.length / 12;
+    var name = sanitizeName(location.hostname || 'scene', 'scene');
+
+    var lines = ['solid ' + name];
+    for (var t = 0; t < count; t++) {
+      var b = t * 12;
+      lines.push('  facet normal ' + fmt(tris[b + 9]) + ' ' + fmt(tris[b + 10]) + ' ' + fmt(tris[b + 11]));
+      lines.push('    outer loop');
+      for (var v = 0; v < 3; v++) {
+        lines.push('      vertex ' + fmt(tris[b + v * 3]) + ' ' + fmt(tris[b + v * 3 + 1]) + ' ' + fmt(tris[b + v * 3 + 2]));
+      }
+      lines.push('    endloop');
+      lines.push('  endfacet');
+    }
+    lines.push('endsolid ' + name);
+
+    return { text: lines.join('\n') + '\n', triangles: count };
+  }
   // Download
   // ---------------------------------------------------------------------------
 
@@ -1005,7 +1149,7 @@
       // explicit selection (the popup checkboxes)
       if (include && !include.has(model.id)) return;
       // text / size filter
-      if (!matchesFilter(model, filter)) return;
+      if (!matchesFilter(model, filter, options.format)) return;
 
       var baseWorld = worldMatrixOf(mesh);
 
@@ -1040,6 +1184,7 @@
       expandInstances: true,
       materials: 'on',
       combine: true,
+      format: 'obj',
       filter: { text: '', minKB: null, maxKB: null, include: null }
     };
   }
@@ -1060,6 +1205,10 @@
       if (f.minKB !== undefined && f.minKB !== null && f.minKB !== '') opts.filter.minKB = Number(f.minKB);
       if (f.maxKB !== undefined && f.maxKB !== null && f.maxKB !== '') opts.filter.maxKB = Number(f.maxKB);
       if (Array.isArray(f.include)) opts.filter.include = f.include.slice();
+    }
+
+    if (raw.format === 'stl' || raw.format === 'stl-ascii' || raw.format === 'obj') {
+      opts.format = raw.format;
     }
 
     return opts;
@@ -1089,6 +1238,7 @@
         instances: m.instances,
         materials: m.materials,
         sizeBytes: m.sizeBytes,
+        sizes: m.sizes,
         bounds: m.bounds
       };
     });
@@ -1133,6 +1283,67 @@
       return { ok: false, message: 'Nenhuma malha encontrada com os filtros atuais.' };
     }
 
+    var isSTL = options.format === 'stl' || options.format === 'stl-ascii';
+
+    // ---- STL: the conversion happens here, the .obj never hits the disk ----
+    if (isSTL) {
+      var stlStats = { meshes: 0, vertices: 0, faces: 0, normals: 0, uvs: 0, materials: 0, skipped: [] };
+
+      if (options.combine !== false) {
+        var stlName = baseName + '.stl';
+        stlStats.meshes = models.length;
+        if (options.format === 'stl') {
+          var binary = buildBinarySTL(models);
+          downloadFile(stlName, binary.buffer, 'model/stl');
+          stlStats.faces = binary.triangles;
+          stlStats.vertices = binary.triangles * 3;
+          files.push(stlName);
+          return {
+            ok: true,
+            files: files,
+            stats: stlStats,
+            format: 'stl',
+            bytes: binary.buffer.byteLength,
+            message: 'STL binario: ' + binary.triangles + ' triangulo(s).'
+          };
+        }
+        var ascii = buildAsciiSTL(models);
+        downloadFile(stlName, ascii.text, 'model/stl');
+        stlStats.faces = ascii.triangles;
+        stlStats.vertices = ascii.triangles * 3;
+        files.push(stlName);
+        return {
+          ok: true,
+          files: files,
+          stats: stlStats,
+          format: 'stl-ascii',
+          bytes: ascii.text.length,
+          message: 'STL ascii: ' + ascii.triangles + ' triangulo(s).'
+        };
+      }
+
+      // One file per model.
+      models.forEach(function (model) {
+        var one = options.format === 'stl' ? buildBinarySTL([model]) : buildAsciiSTL([model]);
+        var fileName = model.name + '.stl';
+        if (options.format === 'stl') downloadFile(fileName, one.buffer, 'model/stl');
+        else downloadFile(fileName, one.text, 'model/stl');
+        files.push(fileName);
+        stlStats.meshes++;
+        stlStats.faces += one.triangles;
+        stlStats.vertices += one.triangles * 3;
+      });
+
+      return {
+        ok: true,
+        files: files,
+        stats: stlStats,
+        format: options.format,
+        message: files.length + ' arquivo(s) STL gerado(s).'
+      };
+    }
+
+    // ---- OBJ (+ .mtl) ------------------------------------------------------
     if (options.combine !== false) {
       var combined = buildOBJ(models, options);
       var objName = baseName + '.obj';
@@ -1149,6 +1360,7 @@
         ok: true,
         files: files,
         stats: combined.stats,
+        format: 'obj',
         bytes: combined.obj.length + (combined.mtl ? combined.mtl.length : 0),
         message: files.length + ' arquivo(s) gerado(s).'
       };
@@ -1172,10 +1384,10 @@
       ok: true,
       files: files,
       stats: stats,
+      format: 'obj',
       message: files.length + ' arquivo(s) gerado(s).'
     };
   }
-
   // ---------------------------------------------------------------------------
   // Page <-> content script bridge
   // ---------------------------------------------------------------------------

@@ -53,6 +53,31 @@ pronto para upload no [Painel do Desenvolvedor](https://chrome.google.com/websto
 > A extensão só captura cenas **construídas depois** que ela é injetada. Se o contador
 > ficar em `0`, recarregue a página (F5).
 
+### Formatos de saída
+
+O seletor **Formato do arquivo** no popup escolhe o que é gravado:
+
+| Formato | O que acontece |
+|---|---|
+| **OBJ (+ .mtl)** | `.obj` com `v`/`vt`/`vn`/`f` + `.mtl` com materiais, cores e texturas referenciadas |
+| **STL binário** | A geometria é convertida **no navegador** e o `.stl` é gravado direto — o `.obj` nunca é criado. Formato ideal para impressão 3D |
+| **STL ASCII** | Idêntico, mas em texto (legível, ~40% maior) |
+
+A conversão STL acontece dentro da página, em memória:
+
+- todos os modelos são fundidos em uma **sopa de triângulos** (STL é malha única);
+- cada facet recebe a **normal calculada a partir dos seus três vértices**
+  (STL não guarda normal por vértice);
+- **triângulos degenerados** (área zero) são descartados;
+- o arquivo binário sai com o layout padrão: 80 bytes de cabeçalho + contagem de
+  4 bytes + 50 bytes por facet.
+
+O tamanho estimado de cada modelo no filtro também acompanha o formato escolhido
+(`84 + 50 × triângulos` para o STL binário), então filtrar por KB faz sentido em
+qualquer formato.
+
+No modelo real do Tripo (352.853 faces): **OBJ 36,5 MB → STL 16,8 MB**.
+
 ### Opções de exportação
 
 | Opção | Padrão | Efeito |
@@ -107,6 +132,7 @@ popup.js  ──chrome.tabs.sendMessage──▶  content.js (contexto isolado)
 |---|---|
 | `src/injected.js` | Roda no contexto da página. Instala os hooks, percorre o grafo de cena e escreve o OBJ |
 | `src/content.js` | Ponte isolada ↔ página. Não toca em dados da página |
+| `src/background.js` | Service worker: localiza a aba alvo de um deep link sem a permissao `tabs` |
 | `src/popup.html` / `src/popup.js` | Interface: contador, opções, disparo do download |
 | `src/manifest.json` | MV3, permissão `activeTab`, content scripts em `<all_urls>` |
 

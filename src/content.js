@@ -74,6 +74,12 @@
       return true;
     }
 
+    // O service worker usa isto para localizar a aba alvo de um deep link.
+    if (request.type === 'MDL_WHERE') {
+      sendResponse({ url: location.href });
+      return true;
+    }
+
     return false;
   });
 
@@ -86,6 +92,7 @@
       expandInstances: true,
       materials: 'on',
       combine: params.get('combine') !== '0',
+      format: params.get('format') || 'obj',
       filter: { text: params.get('text') || '', minKB: null, maxKB: null, include: null }
     };
     if (params.get('min')) options.filter.minKB = Number(params.get('min'));

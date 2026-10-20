@@ -14,11 +14,15 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const DOWNLOADS = 'D:\\Projetos\\3d-mesh-downloader\\.downloads';
 
 const raw = process.argv[2];
-const filterArg = raw
+const spec = raw
   ? (raw.startsWith('@')
       ? JSON.parse(fs.readFileSync(raw.slice(1), 'utf8').replace(/^\uFEFF/, ''))
       : JSON.parse(raw))
   : { text: 'skeleton' };
+
+// aceita {filter: {...}} ou um filtro solto; o formato vem em "format"
+const filterArg = spec.filter || spec;
+const formatArg = spec.format || 'obj';
 
 function connect(url) {
   const ws = new WebSocket(url);
@@ -74,9 +78,10 @@ function connect(url) {
   });
   console.log('setDownloadBehavior:', dl.error ? JSON.stringify(dl.error) : 'ok -> ' + DOWNLOADS);
 
-  // encontra a aba do Tripo
+  // encontra a aba do Tripo (a aba do popup tambem tem "tripo3d.ai" na URL,
+  // por isso o filtro exige o prefixo https://studio.tripo3d.ai)
   const targets = await (await fetch(`${BASE}/json/list`)).json();
-  const page = targets.find((t) => t.type === 'page' && t.url.includes('tripo3d.ai'));
+  const page = targets.find((t) => t.type === 'page' && t.url.startsWith('https://studio.tripo3d.ai'));
   if (!page) { console.error('aba do Tripo nao encontrada'); process.exit(1); }
 
   const pageCdp = connect(page.webSocketDebuggerUrl);
@@ -88,7 +93,7 @@ function connect(url) {
       const h = (ev) => { if (ev.data && ev.data.type === 'MDL_RESULT') { window.removeEventListener('message', h); resolve(ev.data.result); } };
       window.addEventListener('message', h);
       window.postMessage({ type: 'MDL_DOWNLOAD', options: ${JSON.stringify({
-        applyTransforms: true, normals: 'auto', uvs: 'on', expandInstances: true, materials: 'on', combine: true, filter: filterArg
+        applyTransforms: true, normals: 'auto', uvs: 'on', expandInstances: true, materials: 'on', combine: true, format: formatArg, filter: filterArg
       })} }, '*');
       setTimeout(() => resolve({ timeout: true }), 240000);
     });

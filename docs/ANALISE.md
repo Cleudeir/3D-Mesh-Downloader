@@ -263,3 +263,47 @@ patch em `renderer.render` é mesmo a rede de segurança necessária.
 Os downloads foram verificados pelos eventos `Browser.downloadWillBegin` /
 `Browser.downloadProgress` do CDP, com `Browser.setDownloadBehavior` apontando
 para uma pasta local.
+
+---
+
+## Exportacao STL (v2.1)
+
+O popup ganhou um seletor de formato. Em **STL** a geometria é convertida
+dentro da página e o `.stl` é gravado direto — o `.obj` nunca chega a existir
+em disco.
+
+```
+modelos (qualquer formato)
+   └─ extractModel()  → posições em espaço de mundo + índices
+        └─ collectTriangles()  → sopa de triângulos (12 floats por triângulo)
+             └─ buildBinarySTL() / buildAsciiSTL()
+```
+
+O que o STL perde e o que ganha:
+
+| | OBJ | STL |
+|---|---|---|
+| Objetos separados | sim (`o <nome>`) | não — tudo vira uma malha única |
+| Normais por vértice | sim (`vn`) | não — cada facet tem uma normal calculada dos seus 3 vértices |
+| UVs | sim (`vt`) | não |
+| Materiais | `.mtl` | não |
+| Tamanho | 36,5 MB (modelo do Tripo) | **16,8 MB** |
+
+O layout binário segue o padrão: 80 bytes de cabeçalho (texto), 4 bytes com a
+contagem de triângulos e 50 bytes por facet (normal, 3 vértices, 2 bytes de
+atributo). Triângulos degenerados (área zero) são descartados na conversão.
+
+O filtro de tamanho passou a ser **consciente do formato**: a estimativa por
+modelo é calculada nos três formatos (`84 + 50 × triângulos` para o STL
+binário), e tanto o popup quanto a página usam o mesmo número — então
+"filtrar por 500 KB" significa a mesma coisa antes e depois de trocar o formato.
+
+## Service worker (`background.js`)
+
+O deep link do popup (`popup.html?url=...`) precisa achar a aba alvo. Sem a
+permissão `tabs`, `tab.url` chega vazio — e adicionar essa permissão mostraria
+"ler seu histórico de navegação" na loja.
+
+A solução: o service worker pergunta às próprias content scripts o
+`location.href` delas (`chrome.tabs.sendMessage(tabId, {type: 'MDL_WHERE'})`).
+Nenhuma permissão extra, nenhuma leitura de histórico.

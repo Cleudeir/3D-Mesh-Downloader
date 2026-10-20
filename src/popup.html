@@ -216,18 +216,32 @@
       <summary>Opcoes de exportacao</summary>
       <div class="opts">
         <label class="opt">
+          <span>Formato do arquivo
+            <select id="format" style="margin-top:5px;width:100%;font:inherit;font-size:12px;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;">
+              <option value="obj">OBJ (+ .mtl) - com materiais e UVs</option>
+              <option value="stl">STL binario - convertido direto, ideal para impressao 3D</option>
+              <option value="stl-ascii">STL ASCII - convertido direto, em texto</option>
+            </select>
+          </span>
+        </label>
+        <div class="note" id="stlNote" style="display:none;font-size:11px;color:var(--muted);padding:6px 8px;background:var(--accent-soft);border-radius:6px;">
+          STL e um formato de malha unica: os modelos sao fundidos em uma sopa de triangulos,
+          as normais sao recalculadas por face e materiais/UVs nao cabem no arquivo.
+          A conversao acontece no navegador - o .obj nunca e gerado.
+        </div>
+        <label class="opt" id="optTransformsRow">
           <input type="checkbox" id="optTransforms" checked>
           <span>Aplicar transformacoes do objeto
             <small>Exporta em espaco de mundo (posicao/rotacao/escala)</small>
           </span>
         </label>
-        <label class="opt">
+        <label class="opt" id="optNormalsRow">
           <input type="checkbox" id="optNormals" checked>
           <span>Exportar normais (vn)
             <small>Calcula normais planas quando a malha nao tem</small>
           </span>
         </label>
-        <label class="opt">
+        <label class="opt" id="optUvsRow">
           <input type="checkbox" id="optUvs" checked>
           <span>Exportar UVs (vt)</span>
         </label>
@@ -237,13 +251,13 @@
             <small>Uma malha por instancia, com a matriz de cada uma</small>
           </span>
         </label>
-        <label class="opt">
+        <label class="opt" id="optMaterialsRow">
           <input type="checkbox" id="optMaterials" checked>
           <span>Exportar materiais (.mtl)</span>
         </label>
         <label class="opt">
           <input type="checkbox" id="optCombine" checked>
-          <span>Unir tudo em um unico .obj
+          <span id="combineLabel">Unir tudo em um unico arquivo
             <small>Evita o limite de downloads multiplos do Chrome</small>
           </span>
         </label>

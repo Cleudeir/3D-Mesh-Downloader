@@ -4,6 +4,9 @@
   "version": "2.0.0",
   "description": "Exporta malhas Three.js da pagina para OBJ (com normais, UVs, materiais e transformacoes de mundo).",
   "permissions": ["activeTab"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "3D Mesh Downloader",

@@ -65,6 +65,13 @@
       <button class="ghost" id="all">Todos</button>
       <button class="ghost" id="none">Nenhum</button>
     </div>
+    <div class="row">
+      <select id="format" style="flex:1;font:inherit;font-size:12px;color:inherit;background:#12141a;border:1px solid #2b303c;border-radius:6px;padding:6px 8px;">
+        <option value="obj">OBJ (+ .mtl)</option>
+        <option value="stl">STL binario</option>
+        <option value="stl-ascii">STL ASCII</option>
+      </select>
+    </div>
 
     <div id="models"></div>
     <div id="out">pronto</div>
@@ -227,21 +234,37 @@
     document.getElementById('export').onclick = async () => {
       const chosen = filter().filter((m) => selection.has(m.id));
       if (!chosen.length) { log('nenhuma malha selecionada'); return; }
+      const format = document.getElementById('format').value;
+      window.__blobs.length = 0;
       const r = await ask('MDL_RESULT', {
         type: 'MDL_DOWNLOAD',
         options: {
           applyTransforms: true, normals: 'auto', uvs: 'on', expandInstances: true,
-          materials: 'on', combine: true,
+          materials: 'on', combine: true, format: format,
           filter: { text: '', minKB: null, maxKB: null, include: chosen.map((m) => m.id) }
         }
       }, 120000);
       if (!r || !r.ok) { log('erro: ' + (r && r.message)); return; }
       const lines = ['exportado: ' + r.files.join(', '),
-        `malhas: ${r.stats.meshes} · vertices: ${r.stats.vertices} · faces: ${r.stats.faces} · materiais: ${r.stats.materials}`];
+        `malhas: ${r.stats.meshes} · vertices: ${r.stats.vertices} · faces: ${r.stats.faces}`];
       for (const e of window.__blobs) {
-        const text = await e.blob.text();
-        lines.push('', '--- ' + e.name + ' (' + text.length + ' bytes) ---');
-        lines.push(text.split('\n').slice(0, 8).join('\n'));
+        const buf = await e.blob.arrayBuffer();
+        const head = new Uint8Array(buf, 0, Math.min(80, buf.byteLength));
+        const isBinary = buf.byteLength >= 84 && new DataView(buf, 80, 4).getUint32(0, true) > 0 &&
+          String.fromCharCode(...head.slice(0, 20)).indexOf('solid') !== 0;
+        if (isBinary) {
+          const view = new DataView(buf);
+          const n = view.getUint32(80, true);
+          lines.push('', `--- ${e.name} (binario, ${buf.byteLength} bytes, ${n} triangulos) ---`);
+          lines.push('cabecalho: ' + new TextDecoder().decode(head).replace(/\0+$/, ''));
+          const v = [view.getFloat32(96, true), view.getFloat32(100, true), view.getFloat32(104, true)];
+          lines.push('primeiro vertice: ' + v.map((x) => x.toFixed(4)).join(', '));
+          lines.push('tamanho confere: ' + (buf.byteLength === 84 + n * 50));
+        } else {
+          const text = new TextDecoder().decode(new Uint8Array(buf));
+          lines.push('', `--- ${e.name} (${buf.byteLength} bytes) ---`);
+          lines.push(text.split('\n').slice(0, 8).join('\n'));
+        }
       }
       log(lines.join('\n'));
     };
