@@ -177,36 +177,52 @@ async function shot(cdp, name) {
 
   console.log('\n[4b] regra de tamanho');
   await evaluate(popup, `document.getElementById('tab-exclusao').click()`);
-  await sleep(400);
-  console.log('  padrao: ' + await evaluate(popup, `JSON.stringify({
+  await sleep(300);
+
+  // instalacao nova: sem a regra salva, reabrir o popup deve cair no padrao
+  await evaluate(popup, `new Promise((r) => chrome.storage.local.remove('excludeSize', () => r(1)))`);
+  await popup.send('Page.reload');
+  await sleep(3000);
+  console.log('  padrao de fabrica: ' + await evaluate(popup, `JSON.stringify({
     ligada: document.getElementById('excludeSizeOn').checked,
     modo: document.getElementById('excludeSizeMode').value,
     kb: document.getElementById('excludeSizeKB').value
   })`));
   await sleep(1800);
-  console.log('  excluidas por tamanho (padrao maior que 50 KB): ' + await evaluate(popup, `(() => {
+  console.log('  excluidas por tamanho (padrao: menor que 50 KB): ' + await evaluate(popup, `(() => {
     const hits = Array.from(document.querySelectorAll('#excludePreview .hit'));
     const porTamanho = hits.filter((h) => h.querySelector('.mmeta').textContent.indexOf('tamanho') === 0);
     return JSON.stringify({ total: hits.length, porTamanho: porTamanho.length,
+      regra: porTamanho.length ? porTamanho[0].querySelector('.mmeta').textContent : null,
       amostra: porTamanho.slice(0, 3).map((h) => h.querySelector('.mname').textContent) });
   })()`));
   await shot(popup, 'popup-4b-tamanho-padrao');
 
-  // troca para "menor que" e ve o efeito
+  // inverte para "maior que" e ve o efeito (so o modelo grande sai)
   await evaluate(popup, `(() => {
     const m = document.getElementById('excludeSizeMode');
-    m.value = 'below';
+    m.value = 'above';
     m.dispatchEvent(new Event('change', { bubbles: true }));
     return true;
   })()`);
   await sleep(2000);
-  console.log('  agora menor que 50 KB: ' + await evaluate(popup, `(() => {
+  console.log('  agora maior que 50 KB: ' + await evaluate(popup, `(() => {
     const hits = Array.from(document.querySelectorAll('#excludePreview .hit'));
     const porTamanho = hits.filter((h) => h.querySelector('.mmeta').textContent.indexOf('tamanho') === 0);
     return JSON.stringify({ total: hits.length, porTamanho: porTamanho.length,
       regra: porTamanho.length ? porTamanho[0].querySelector('.mmeta').textContent : null });
   })()`));
-  await shot(popup, 'popup-4c-tamanho-menor-que');
+  await shot(popup, 'popup-4c-tamanho-maior-que');
+
+  // migracao: regra gravada pela versao antiga (sem "v") vira "menor que"
+  await evaluate(popup, `new Promise((r) => chrome.storage.local.set(
+    { excludeSize: { enabled: true, mode: 'above', kb: 50 } }, () => r(1)))`);
+  await popup.send('Page.reload');
+  await sleep(2500);
+  console.log('  migracao (regra antiga, sem versao): ' + await evaluate(popup, `JSON.stringify({
+    modo: document.getElementById('excludeSizeMode').value,
+    ligada: document.getElementById('excludeSizeOn').checked
+  })`));
 
   // desliga e volta ao padrao para nao afetar os passos seguintes
   await evaluate(popup, `(() => {
@@ -299,6 +315,7 @@ async function shot(cdp, name) {
   })()`);
   await sleep(400);
   console.log('  visiveis: ' + await evaluate(popup, `document.querySelectorAll('#modelList label').length`));
+  console.log('  formato: ' + await evaluate(popup, `document.getElementById('format').value`));
   console.log('  botao: ' + await evaluate(popup, `document.getElementById('downloadBtn').textContent`));
 
   const DOWNLOADS = 'D:\\Projetos\\3d-mesh-downloader\\.downloads';
@@ -320,6 +337,39 @@ async function shot(cdp, name) {
   console.log('  arquivos: ' + JSON.stringify(files.map((f) => f + ' (' + fs.statSync(path.join(DOWNLOADS, f)).size + ' B)')));
   console.log('  status no popup: ' + await evaluate(popup, `document.getElementById('status').textContent`));
   await shot(popup, 'popup-8-download');
+
+  console.log('\n[9] preferencias sao lembradas ao reabrir');
+  await evaluate(popup, `(() => {
+    const f = document.getElementById('format');
+    f.value = 'obj'; f.dispatchEvent(new Event('change', { bubbles: true }));
+    const n = document.getElementById('optNormals');
+    n.checked = false; n.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(700);
+  console.log('  antes de reabrir: ' + await evaluate(popup,
+    `JSON.stringify({ formato: document.getElementById('format').value,
+      normais: document.getElementById('optNormals').checked })`));
+
+  await popup.send('Page.reload');
+  await sleep(3000);
+  console.log('  depois de reabrir: ' + await evaluate(popup, `JSON.stringify({
+    formato: document.getElementById('format').value,
+    normais: document.getElementById('optNormals').checked,
+    regra: document.getElementById('excludeSizeMode').value,
+    regraLigada: document.getElementById('excludeSizeOn').checked,
+    aba: document.querySelector('.tab[aria-selected="true"]').dataset.tab
+  })`));
+  await shot(popup, 'popup-12-preferencias-lembradas');
+
+  // devolve o padrao (STL + normais)
+  await evaluate(popup, `(() => {
+    const f = document.getElementById('format');
+    f.value = 'stl'; f.dispatchEvent(new Event('change', { bubbles: true }));
+    const n = document.getElementById('optNormals');
+    n.checked = true; n.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
 
   console.log('\nfim');
   popup.close();

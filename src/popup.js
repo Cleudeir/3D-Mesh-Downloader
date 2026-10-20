@@ -52,43 +52,110 @@
   var models = [];            // descriptors coming from the page
   var selection = new Set();  // ids the user wants to export
   var excludePatterns = [];   // names that must never be captured
-  var excludeSize = { enabled: true, mode: 'above', kb: 50 }; // "nao capturar" por tamanho
+  var excludeSize = { enabled: true, mode: 'below', kb: 50, v: 2 }; // "nao capturar" por tamanho
   var pollTimer = null;
   var lastSignature = '';
   var lastInfoSignature = null;
 
   var STORAGE_KEY = 'excludePatterns';
   var STORAGE_KEY_SIZE = 'excludeSize';
-  var DEFAULT_SIZE = { enabled: true, mode: 'above', kb: 50 };
+  var STORAGE_KEY_SETTINGS = 'settings';
+  // v2: o padrao passou de "maior que 50 KB" (que na pratica nao filtrava nada)
+  // para "menor que 50 KB", que descarta os gizmos pequenos.
+  var SIZE_RULE_VERSION = 2;
+  var DEFAULT_SIZE = { enabled: true, mode: 'below', kb: 50, v: SIZE_RULE_VERSION };
+  // STL e o padrao: e o formato que a maioria quer (impressao 3D) e evita o
+  // .obj gigante com .mtl ao lado.
+  var DEFAULT_SETTINGS = {
+    format: 'stl',
+    applyTransforms: true,
+    normals: true,
+    uvs: true,
+    instances: true,
+    materials: true,
+    combine: true
+  };
 
   // ---------------------------------------------------------------------------
   // Lista de exclusao (persistida)
   // ---------------------------------------------------------------------------
 
-  function loadPatterns(callback) {
-    try {
-      chrome.storage.local.get({
-        [STORAGE_KEY]: [],
-        [STORAGE_KEY_SIZE]: DEFAULT_SIZE
-      }, function (items) {
-        var stored = items && items[STORAGE_KEY];
-        excludePatterns = Array.isArray(stored) ? stored.slice() : [];
+  function loadState(callback) {
+    // Le as chaves cruas (array), sem objeto de defaults: com objeto,
+    // chrome.storage.local.get() faz merge raso do default com o valor salvo e
+    // injeta campos que nao estao gravados (foi assim que a migracao da regra
+    // de tamanho deixou de rodar).
+    var keys = [STORAGE_KEY, STORAGE_KEY_SIZE, STORAGE_KEY_SETTINGS, ACTIVE_TAB_KEY];
 
-        var size = items && items[STORAGE_KEY_SIZE];
-        if (size && typeof size === 'object') {
-          excludeSize = {
-            enabled: size.enabled !== false,
-            mode: size.mode === 'below' ? 'below' : 'above',
-            kb: isFinite(Number(size.kb)) && Number(size.kb) >= 0 ? Number(size.kb) : 50
-          };
-        }
-        renderExcludeSize();
-        callback();
-      });
-    } catch (e) {
+    function apply(items) {
+      items = items || {};
+
+      var stored = items[STORAGE_KEY];
+      excludePatterns = Array.isArray(stored) ? stored.slice() : [];
+
+      var enabled = DEFAULT_SIZE.enabled;
+      var mode = DEFAULT_SIZE.mode;
+      var kb = DEFAULT_SIZE.kb;
+
+      var size = items[STORAGE_KEY_SIZE];
+      if (size && typeof size === 'object') {
+        enabled = size.enabled !== false;
+        mode = size.mode === 'below' ? 'below' : 'above';
+        // regra salva por uma versao anterior: o padrao era "maior que 50 KB",
+        // que excluia so o modelo principal. Migra para "menor que".
+        if (Number(size.v) !== SIZE_RULE_VERSION) mode = 'below';
+        if (isFinite(Number(size.kb)) && Number(size.kb) >= 0) kb = Number(size.kb);
+      }
+
+      excludeSize = { enabled: enabled, mode: mode, kb: kb, v: SIZE_RULE_VERSION };
+
+      applySettings(items[STORAGE_KEY_SETTINGS]);
       renderExcludeSize();
+      selectTab(items[ACTIVE_TAB_KEY] || 'modelos');
       callback();
     }
+
+    try {
+      chrome.storage.local.get(keys, apply);
+    } catch (e) {
+      apply({});
+    }
+  }
+
+  /** Formato e opcoes de exportacao, como estao no formulario agora. */
+  function readSettingsFromForm() {
+    return {
+      format: currentFormat(),
+      applyTransforms: els.optTransforms.checked,
+      normals: els.optNormals.checked,
+      uvs: els.optUvs.checked,
+      instances: els.optInstances.checked,
+      materials: els.optMaterials.checked,
+      combine: els.optCombine.checked
+    };
+  }
+
+  function saveSettings() {
+    try {
+      chrome.storage.local.set({ [STORAGE_KEY_SETTINGS]: readSettingsFromForm() });
+    } catch (e) {
+      /* storage indisponivel */
+    }
+  }
+
+  /** Restaura formato e opcoes salvas (o que nao vier fica no padrao). */
+  function applySettings(settings) {
+    var s = settings && typeof settings === 'object' ? settings : {};
+    var format = s.format;
+    els.format.value = format === 'obj' || format === 'stl-ascii' || format === 'stl'
+      ? format
+      : DEFAULT_SETTINGS.format;
+    els.optTransforms.checked = s.applyTransforms !== false;
+    els.optNormals.checked = s.normals !== false;
+    els.optUvs.checked = s.uvs !== false;
+    els.optInstances.checked = s.instances !== false;
+    els.optMaterials.checked = s.materials !== false;
+    els.optCombine.checked = s.combine !== false;
   }
 
   function savePatterns() {
@@ -117,19 +184,29 @@
     els.excludeSizeKB.disabled = !excludeSize.enabled;
   }
 
-  /** Reads the size rule from the inputs, persists it and refreshes the page. */
-  function readSizeInputs() {
+  /** Le a regra de tamanho dos campos e grava (sem falar com a pagina). */
+  function flushSizeRule() {
     var kb = Number(els.excludeSizeKB.value);
     if (!isFinite(kb) || kb < 0) kb = 0;
     excludeSize = {
       enabled: els.excludeSizeOn.checked,
       mode: els.excludeSizeMode.value === 'below' ? 'below' : 'above',
-      kb: kb
+      kb: kb,
+      v: SIZE_RULE_VERSION
     };
     saveExcludeSize();
+  }
+
+  function refreshSizeUI() {
     els.excludeSizeMode.disabled = !excludeSize.enabled;
     els.excludeSizeKB.disabled = !excludeSize.enabled;
     updateExcludeBadge();
+  }
+
+  /** Le a regra de tamanho, persiste e recarrega o estado da pagina. */
+  function readSizeInputs() {
+    flushSizeRule();
+    refreshSizeUI();
     requestInfo();
   }
 
@@ -265,16 +342,6 @@
       }
     });
   });
-
-  function restoreTab() {
-    try {
-      chrome.storage.local.get({ [ACTIVE_TAB_KEY]: 'modelos' }, function (items) {
-        selectTab(items && items[ACTIVE_TAB_KEY] ? items[ACTIVE_TAB_KEY] : 'modelos');
-      });
-    } catch (e) {
-      selectTab('modelos');
-    }
-  }
 
   /** The export format currently selected. */
   function currentFormat() {
@@ -672,7 +739,22 @@
     if (!request || typeof request !== 'object') return;
 
     if (request.type === 'MDL_INFO') {
-      if (request.version) els.version.textContent = 'v' + request.version;
+      if (request.version) {
+        els.version.textContent = 'v' + request.version;
+        var extensionVersion = '';
+        try { extensionVersion = chrome.runtime.getManifest().version; } catch (e) { /* sem manifest */ }
+        // A pagina guarda a copia do content script injetada quando ela carregou.
+        // Se a extensao foi recarregada depois, a pagina continua rodando a
+        // versao antiga (e ignora recursos novos, como a regra de tamanho).
+        if (extensionVersion && request.version !== extensionVersion) {
+          els.version.classList.add('stale');
+          els.version.title = 'A pagina esta com a versao ' + request.version +
+            ' e a extensao instalada e ' + extensionVersion + '. Recarregue a pagina (F5).';
+        } else {
+          els.version.classList.remove('stale');
+          els.version.title = '';
+        }
+      }
       var signature = (request.info.models || []).map(function (m) { return m.id; }).join(',');
       renderInfo(request.info);
       if (signature !== lastSignature) {
@@ -723,8 +805,18 @@
     applyFormatToOptions();
     renderList();
     updateSelectionPill();
+    saveSettings();
     // o tamanho estimado muda com o formato: a regra de tamanho precisa saber
     requestInfo();
+  });
+
+  // formato e opcoes ficam salvos: reabrir o popup nao volta tudo ao padrao
+  [els.optTransforms, els.optNormals, els.optUvs,
+   els.optInstances, els.optMaterials, els.optCombine].forEach(function (box) {
+    box.addEventListener('change', function () {
+      saveSettings();
+      updateSelectionPill();
+    });
   });
 
   els.filterText.addEventListener('input', onFilterChange);
@@ -778,11 +870,16 @@
   var sizeTimer = null;
   function queueSizeChange() {
     if (sizeTimer) clearTimeout(sizeTimer);
-    sizeTimer = setTimeout(readSizeInputs, 250);
+    sizeTimer = setTimeout(requestInfo, 250);
   }
   els.excludeSizeOn.addEventListener('change', readSizeInputs);
   els.excludeSizeMode.addEventListener('change', readSizeInputs);
-  els.excludeSizeKB.addEventListener('input', queueSizeChange);
+  els.excludeSizeKB.addEventListener('input', function () {
+    // grava a cada tecla (storage local e barato); so a consulta a pagina espera
+    flushSizeRule();
+    refreshSizeUI();
+    queueSizeChange();
+  });
   els.excludeSizeKB.addEventListener('change', readSizeInputs);
 
   // Poll while the popup stays open so the count follows the page.
@@ -790,11 +887,11 @@
 
   window.addEventListener('unload', function () {
     if (pollTimer) clearInterval(pollTimer);
+    if (sizeTimer) clearTimeout(sizeTimer);
   });
 
-  applyFormatToOptions();
-  restoreTab();
-  loadPatterns(function () {
+  loadState(function () {
+    applyFormatToOptions();
     renderPatterns();
     requestInfo();
   });

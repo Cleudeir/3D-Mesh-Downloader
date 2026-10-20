@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "3D Mesh Downloader",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Exporta malhas Three.js da pagina para OBJ (com normais, UVs, materiais e transformacoes de mundo).",
   "permissions": ["activeTab", "storage"],
   "background": {

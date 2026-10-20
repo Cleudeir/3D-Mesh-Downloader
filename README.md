@@ -74,6 +74,10 @@ visível em qualquer aba. O badge de cada aba resume o estado (malhas
 selecionadas, padrões ativos) e a última aba usada é restaurada ao reabrir o
 popup. Teclado: `←`/`→` alternam e `1`/`2`/`3` saltam.
 
+**Tudo o que você configura fica salvo** em `chrome.storage.local`: formato,
+opções de exportação, padrões de exclusão, regra de tamanho e a aba ativa.
+Fechar e reabrir o popup não volta nada ao padrão.
+
 > A extensão só captura cenas **construídas depois** que ela é injetada. Se o contador
 > ficar em `0`, recarregue a página (F5).
 
@@ -106,12 +110,12 @@ Logo abaixo dos padrões, uma regra de tamanho:
 | **KB** | limite (padrão: 50) |
 
 O tamanho é o **estimado para o formato escolhido** na aba Exportar — o mesmo
-número que aparece na lista — então `> 50 KB` significa o mesmo no popup e no
+número que aparece na lista — então `50 KB` significa o mesmo no popup e no
 arquivo. Trocar o formato reavalia a regra; ela também fica salva no navegador.
 
-> O padrão é **maior que 50 KB**. No Tripo isso exclui o modelo principal
-> (~26 MB) e deixa justamente os gizmos pequenos — se o objetivo for descartar
-> os gizmos, use **menor que 50 KB**.
+> O padrão é **menor que 50 KB**: descarta os gizmos e helpers pequenos da cena
+> (no Tripo são ~24 malhas de poucos KB) e deixa o modelo de verdade. Para o
+> contrário — descartar o que for grande — troque para **maior que**.
 
 Clicar no `↺` de um modelo excluído **pela regra de tamanho** leva direto à
 aba Exclusão, para ajustar o limite (não há padrão de nome para remover).
@@ -134,13 +138,15 @@ No modelo real do Tripo (68 malhas, ~50 delas são gizmos do editor):
 
 ### Formatos de saída
 
-O seletor **Formato do arquivo** no popup escolhe o que é gravado:
+O seletor **Formato do arquivo** no popup escolhe o que é gravado. O padrão é
+**STL binário** — é o que a maioria quer (impressão 3D) e evita o `.obj` gigante
+com `.mtl` ao lado:
 
 | Formato | O que acontece |
 |---|---|
+| **STL binário** *(padrão)* | A geometria é convertida **no navegador** e o `.stl` é gravado direto — o `.obj` nunca é criado |
 | **OBJ (+ .mtl)** | `.obj` com `v`/`vt`/`vn`/`f` + `.mtl` com materiais, cores e texturas referenciadas |
-| **STL binário** | A geometria é convertida **no navegador** e o `.stl` é gravado direto — o `.obj` nunca é criado. Formato ideal para impressão 3D |
-| **STL ASCII** | Idêntico, mas em texto (legível, ~40% maior) |
+| **STL ASCII** | Igual ao binário, mas em texto (legível, ~40% maior) |
 
 A conversão STL acontece dentro da página, em memória:
 

@@ -142,9 +142,19 @@ O popup e a página usam **a mesma** regra e **os mesmos** números, então
 
 A regra de tamanho compara o **tamanho estimado no formato escolhido** — trocar
 para STL muda a estimativa e, com ela, quem entra ou sai. O padrão é
-`maior que 50 KB`, e a regra só é aplicada depois da lista de nomes: se um
-modelo casa com os dois, a marcação mostra o padrão de nome (mais específico),
-mas ele é contado uma única vez.
+`menor que 50 KB` (descarta os gizmos pequenos); a regra só é aplicada depois
+da lista de nomes: se um modelo casa com os dois, a marcação mostra o padrão de
+nome (mais específico), mas ele é contado uma única vez.
+
+### Tudo que o usuário configura é persistido
+
+Formato, opções de exportação, padrões, regra de tamanho e a aba ativa ficam em
+`chrome.storage.local`. Sem isso, cada abertura do popup voltava ao padrão e o
+usuário perdia a configuração — inclusive o formato, que agora nasce em **STL**.
+
+A regra de tamanho viaja com um campo `v`: regras gravadas por versões antigas
+(em que o padrão era `maior que 50 KB`) são migradas para `menor que 50 KB`,
+porque a regra antiga não filtrava nada na prática (excluía só o modelo maior).
 
 Na lista do popup os exportáveis vêm primeiro e os excluídos vão para o fim,
 atrás de um separador — a fila de exportação não se mistura com o que foi
@@ -281,6 +291,17 @@ Corrigido em duas partes:
 
 O bloco de excluídas ganhou ainda rolagem própria (`overscroll-behavior:
 contain`), para percorrer os nomes sem arrastar a lista de exportáveis junto.
+
+### `storage.get` com objeto de defaults injeta campos
+
+`chrome.storage.local.get({ chave: { ...defaults } })` **não** devolve o valor
+salvo puro: faz um merge raso do objeto de defaults com o valor gravado. O
+efeito era sutil e grave — o campo `v` (que só existia no default) aparecia
+sempre, então a condição de migração `v !== 2` nunca era verdadeira e a regra de
+tamanho antiga (`maior que 50 KB`) nunca migrava.
+
+Correção: ler uma **lista de chaves** (sem defaults) e aplicar os defaults no
+código. Vale para qualquer leitura de objeto no storage.
 
 ### `__THREE_DEVTOOLS__` roubado pela página
 
