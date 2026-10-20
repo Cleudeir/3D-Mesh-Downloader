@@ -1,15 +1,33 @@
 {
   "name": "3d-mesh-downloader",
   "version": "2.0.0",
-  "description": "Extensao Chrome que exporta malhas Three.js de qualquer pagina para OBJ (com normais, UVs, materiais e transformacoes de mundo).",
-  "private": true,
+  "description": "Extensao Chrome que exporta a cena Three.js de qualquer pagina para OBJ (+MTL) ou STL, com normais, UVs, materiais, transformacoes de mundo, filtros e lista de exclusao.",
+  "private": false,
+  "author": "Cleudeir",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cleudeir/3D-Mesh-Downloader.git"
+  },
+  "homepage": "https://github.com/Cleudeir/3D-Mesh-Downloader",
+  "bugs": {
+    "url": "https://github.com/Cleudeir/3D-Mesh-Downloader/issues"
+  },
   "scripts": {
     "test": "node test/run.js",
     "test:browser": "node tools/serve.js",
     "build": "node tools/build.js",
-    "check": "node --check src/injected.js && node --check src/content.js && node --check src/popup.js && node test/run.js"
+    "check": "node --check src/injected.js && node --check src/content.js && node --check src/popup.js && node --check src/background.js && node test/run.js"
   },
-  "keywords": ["threejs", "obj", "mesh", "chrome-extension", "manifest-v3", "3d"],
+  "keywords": [
+    "threejs",
+    "obj",
+    "stl",
+    "mesh",
+    "chrome-extension",
+    "manifest-v3",
+    "3d",
+    "3d-printing"
+  ],
   "license": "MIT",
   "engines": {
     "node": ">=18"

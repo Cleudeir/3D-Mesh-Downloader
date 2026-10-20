@@ -1,14 +1,20 @@
-# 3D Mesh Downloader
+# 3D-Mesh-Downloader
 
-Extensão Chrome (Manifest V3) que **exporta a cena 3D de qualquer página para `.obj`**.
+Extensão Chrome (Manifest V3) que **exporta a cena 3D de qualquer página** —
+em `.obj` (+ `.mtl`) ou convertida direto para `.stl`.
 
 Não é um "download de assets": ela intercepta a cena Three.js que está sendo renderizada
 na página e reconstrói a geometria (posição, normais, UVs, materiais e transformações de
-objeto) em um arquivo Wavefront OBJ.
+objeto) em um arquivo Wavefront OBJ — ou em STL, pronto para impressão 3D.
 
-Baseado na extensão original [`bopjesvla/3d-downloader`](https://github.com/bopjesvla/3d-downloader)
-(Chrome Web Store: *"3D Model Downloader"*, ID `gbdaimhoibipdfjcejfnhjiiipglfolf`).
-Esta versão é uma reimplementação com as correções descritas em [docs/ANALISE.md](docs/ANALISE.md).
+- Extração da cena Three.js com aplicação de `matrixWorld`
+- Normais, UVs e materiais (`.mtl`) preservados
+- `InstancedMesh` expandido, `SkinnedMesh` na pose deformada
+- **STL binário ou ASCII** convertido no navegador (o `.obj` nunca é criado)
+- Filtro por **nome** e por **tamanho**, com seleção explícita por modelo
+- **Lista de exclusão** persistente (o que não deve entrar no arquivo)
+
+Arquitetura e decisões de projeto: [docs/DESIGN.md](docs/DESIGN.md).
 
 ---
 
@@ -192,21 +198,21 @@ Isso mantém a extensão funcionando em qualquer versão do three.js, inclusive 
 
 ---
 
-## Diferenças em relação à extensão original
+## O que a extensão entrega
 
-| | Original (v1.0.0) | Aqui (v2.0.0) |
-|---|---|---|
-| Transformações | ignoradas (espaço local) | aplicadas via `matrixWorld` |
-| Normais | não exporta | exporta `vn`; calcula planar quando falta |
-| UVs | não exporta | exporta `vt` |
-| Materiais | não exporta | gera `.mtl` com cor, rugosidade, metalicidade e textura |
-| Espaço de cor | — | converte de linear (padrão do three.js) para **sRGB** no `.mtl` |
-| `InstancedMesh` | exporta só a geometria base | expande uma malha por instância |
-| `SkinnedMesh` | exporta pose bind | exporta a pose deformada (skinning) |
-| Nº de downloads | 1 por malha (Chrome corta ~10) | 1 `.obj` + 1 `.mtl` |
-| Nome do arquivo | `mesh.name` cru | saneado e único |
-| Sobrevive a `__THREE_DEVTOOLS__` da página | não (era sobrescrito) | sim |
-| Avisos | `alert()` | status no popup |
+| Recurso | Como funciona |
+|---|---|
+| Transformações | aplicadas via `matrixWorld` (posição/rotação/escala reais no arquivo) |
+| Normais | `vn` exportadas; quando a malha não tem atributo de normal, é calculada uma normal planar e os vértices são expandidos |
+| UVs | `vt` exportadas quando o atributo existe |
+| Materiais | `.mtl` com `newmtl`, `Kd`, `Pr`, `Pm` e `map_Kd` |
+| Espaço de cor | convertido de linear (padrão do three.js) para **sRGB** no `.mtl` |
+| `InstancedMesh` | uma malha por instância, com a matriz de cada uma |
+| `SkinnedMesh` | exportado na pose deformada (skinning recalculado) |
+| Nº de downloads | 1 `.obj` + 1 `.mtl` (ou 1 `.stl`) — não esbarra no limite de downloads do Chrome |
+| Nome do arquivo | saneado e único (`X`, `X_1`, `X_2`…) |
+| `__THREE_DEVTOOLS__` da página | não consegue roubar o hook: é instalado como *accessor* |
+| Avisos | status no popup, sem `alert()` |
 
 ---
 
@@ -292,7 +298,7 @@ Validado em <https://studio.tripo3d.ai/workspace/generate/white-fluffy-dog-with-
   exatamente os conjuntos esperados.
 
 Esse teste real encontrou um bug que os testes sintéticos não pegavam — ver
-[docs/ANALISE.md](docs/ANALISE.md).
+[docs/DESIGN.md](docs/DESIGN.md).
 
 ---
 
