@@ -213,9 +213,11 @@ As abas são `role="tab"`/`role="tabpanel"` com `aria-selected` e navegação po
 `←`/`→` e `1`–`3`. A aba ativa é gravada em `chrome.storage.local`: o popup
 reabre onde o usuário parou, como o Chrome restaura a última aba.
 
-O botão de download e o status ficam **fora** do painel, para continuarem
-visíveis em qualquer aba. Os badges mostram a seleção atual e o número de
-padrões ativos — informação que muda com o uso, não decoração.
+O botão de download e o **Atualizar contagem** ficam dentro da aba Modelos,
+junto da lista: as abas Exclusão e Exportar são só configuração. O status é
+global, para a resposta do download aparecer mesmo se o usuário trocar de aba.
+Os badges mostram a seleção atual e o número de padrões ativos — informação que
+muda com o uso, não decoração.
 
 ### `storage` em vez de sincronização
 

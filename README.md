@@ -68,10 +68,11 @@ O popup é dividido em **abas**, no estilo do Chrome:
 | **Exclusão** | padrões que nunca entram no arquivo e a prévia do que está sendo excluído |
 | **Exportar** | formato (OBJ/STL) e as opções de exportação |
 
-O botão **Baixar** e a barra de status ficam fora das abas: continuam visíveis em
-qualquer uma, já mostrando quantas malhas serão baixadas. O badge de cada aba
-resume o estado (malhas selecionadas, padrões ativos) e a última aba usada é
-restaurada ao reabrir o popup. Teclado: `←`/`→` alternam e `1`/`2`/`3` saltam.
+O botão **Baixar** e o **Atualizar contagem** ficam na aba **Modelos**, junto da
+lista; as outras abas cuidam só de configuração. A barra de status continua
+visível em qualquer aba. O badge de cada aba resume o estado (malhas
+selecionadas, padrões ativos) e a última aba usada é restaurada ao reabrir o
+popup. Teclado: `←`/`→` alternam e `1`/`2`/`3` saltam.
 
 > A extensão só captura cenas **construídas depois** que ela é injetada. Se o contador
 > ficar em `0`, recarregue a página (F5).

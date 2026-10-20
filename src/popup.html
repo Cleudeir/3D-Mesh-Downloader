@@ -32,7 +32,7 @@
     [hidden] { display: none !important; }
     body {
       width: 360px;
-      max-height: 620px;
+      max-height: 600px;
       overflow-y: auto;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, sans-serif;
       background: var(--bg);
@@ -264,7 +264,7 @@
     /* ---------- lista de modelos ---------- */
     .models {
       margin-top: 10px;
-      max-height: 214px;
+      max-height: 168px;
       overflow-y: auto;
       border-top: 1px solid var(--line);
       padding-top: 6px;
@@ -317,7 +317,7 @@
     }
     /* bloco de excluidas com rolagem propria */
     .excluded-block {
-      max-height: 138px;
+      max-height: 122px;
       overflow-y: auto;
       overscroll-behavior: contain;
       margin-top: 2px;
@@ -372,6 +372,7 @@
     .status.err { background: color-mix(in srgb, var(--err) 14%, transparent); border-color: color-mix(in srgb, var(--err) 35%, transparent); }
 
     .actions { display: grid; gap: 7px; }
+    .panel .actions { margin-top: 10px; }
     button {
       width: 100%;
       padding: 10px 12px;
@@ -467,6 +468,16 @@
       <div class="models" id="modelList">
         <div class="empty">nenhuma malha encontrada</div>
       </div>
+
+      <div class="actions">
+        <button class="primary" id="downloadBtn" disabled>Baixar malhas</button>
+        <button class="ghost" id="refreshBtn">Atualizar contagem</button>
+      </div>
+
+      <p class="hint" style="margin:9px 0 0;">
+        Requer <code>Three.js</code> na pagina. Contagem em 0? Recarregue (F5): a extensao so
+        captura cenas criadas depois de ser injetada.
+      </p>
     </section>
 
     <!-- ---------- aba: exclusao ---------- -->
@@ -545,16 +556,6 @@
   </div>
 
   <div class="status" id="status"></div>
-
-  <div class="actions" style="padding: 0 12px;">
-    <button class="primary" id="downloadBtn" disabled>Baixar malhas</button>
-    <button class="ghost" id="refreshBtn">Atualizar contagem</button>
-  </div>
-
-  <p class="hint">
-    Requer uma pagina com <code>Three.js</code>. Se a contagem ficar em 0, recarregue a pagina
-    (a extensao so captura cenas construidas depois que ela e injetada).
-  </p>
 
   <script src="popup.js"></script>
 </body>

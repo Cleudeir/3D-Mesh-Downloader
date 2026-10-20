@@ -114,7 +114,7 @@ async function shot(cdp, name) {
   await popup.send('Page.enable');
   await popup.send('Runtime.enable');
   await popup.send('Emulation.setDeviceMetricsOverride', {
-    width: 360, height: 620, deviceScaleFactor: 2, mobile: false
+    width: 360, height: 600, deviceScaleFactor: 2, mobile: false
   });
 
   // 4. espera as malhas chegarem (a pagina do Tripo monta a cena em ~20 s)
@@ -136,6 +136,8 @@ async function shot(cdp, name) {
     painelVisivel: Array.from(document.querySelectorAll('.panel'))
       .filter(p => !p.hidden).map(p => p.id),
     modelos: document.querySelectorAll('#modelList label').length,
+    botaoBaixarVisivel: !document.getElementById('downloadBtn').hidden &&
+      !!document.getElementById('downloadBtn').offsetParent,
     altura: document.body.scrollHeight
   }))()`);
 
