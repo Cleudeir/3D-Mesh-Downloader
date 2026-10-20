@@ -292,6 +292,20 @@ Corrigido em duas partes:
 O bloco de excluídas ganhou ainda rolagem própria (`overscroll-behavior:
 contain`), para percorrer os nomes sem arrastar a lista de exportáveis junto.
 
+### Exportação em andamento x polling
+
+O popup consulta a página a cada 2 s. Durante uma exportação grande a página
+fica ocupada e a consulta falha — o que pintava *"Não foi possível acessar a aba
+ativa"* por cima do resultado, mesmo com o arquivo saindo certo. Agora existe um
+estado `exporting`:
+
+- o poll para enquanto a exportação roda;
+- o botão fica em **Gerando...** e o `updateSelectionPill` não o reabilita no
+  meio do processo (antes ele voltava a "Baixar N malhas" em 2 s);
+- uma falha isolada de comunicação é ignorada; o aviso só aparece após **duas
+  falhas seguidas**;
+- um watchdog de 3 min destrava o botão se a página nunca responder.
+
 ### `storage.get` com objeto de defaults injeta campos
 
 `chrome.storage.local.get({ chave: { ...defaults } })` **não** devolve o valor

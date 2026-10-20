@@ -54,8 +54,11 @@
   var excludePatterns = [];   // names that must never be captured
   var excludeSize = { enabled: true, mode: 'below', kb: 50, v: 2 }; // "nao capturar" por tamanho
   var pollTimer = null;
+  var exportTimer = null;
   var lastSignature = '';
   var lastInfoSignature = null;
+  var exporting = false;     // exportacao em andamento: nao deixa o poll atrapalhar
+  var infoFailures = 0;      // falhas seguidas ao falar com a pagina
 
   var STORAGE_KEY = 'excludePatterns';
   var STORAGE_KEY_SIZE = 'excludeSize';
@@ -593,8 +596,11 @@
     var format = currentFormat();
     var total = selected.reduce(function (acc, m) { return acc + sizeForFormat(m, format); }, 0);
     els.pill.textContent = selected.length + '/' + models.length + ' · ~' + fmtSize(total);
-    els.download.disabled = selected.length === 0;
-    els.download.textContent = selected.length === 1 ? 'Baixar 1 malha' : 'Baixar ' + selected.length + ' malhas';
+    // durante a exportacao o botao fica em "Gerando..." - o poll nao pode desfazer
+    if (!exporting) {
+      els.download.disabled = selected.length === 0;
+      els.download.textContent = selected.length === 1 ? 'Baixar 1 malha' : 'Baixar ' + selected.length + ' malhas';
+    }
     setBadge(els.tabBadgeModels, selected.length);
   }
 
@@ -657,9 +663,13 @@
   }
 
   function requestInfo() {
+    if (exporting) return; // pagina ocupada gerando o arquivo
     activeTabId(function (tabId) {
       if (tabId == null) {
-        showStatus('Nao foi possivel acessar a aba ativa.', 'err');
+        infoFailures++;
+        if (!exporting && infoFailures >= 2) {
+          showStatus('Nao foi possivel acessar a aba ativa.', 'err');
+        }
         return;
       }
       chrome.tabs.sendMessage(tabId, {
@@ -669,9 +679,15 @@
         format: currentFormat()
       }, function () {
         if (chrome.runtime.lastError) {
+          infoFailures++;
+          // uma falha isolada e normal enquanto a pagina esta ocupada; so
+          // avisa quando o problema persiste
+          if (exporting || infoFailures < 2) return;
           els.count.textContent = '-';
           els.download.disabled = true;
           showStatus('Recarregue a pagina para ativar a extensao nesta aba.', 'err');
+        } else {
+          infoFailures = 0;
         }
       });
     });
@@ -709,17 +725,29 @@
       return;
     }
     hideStatus();
+    exporting = true;
     els.download.disabled = true;
     els.download.innerHTML = 'Gerando<span class="spin"></span>';
 
+    // rede de seguranca: se a pagina nunca responder, o botao nao fica travado
+    if (exportTimer) clearTimeout(exportTimer);
+    exportTimer = setTimeout(function () {
+      if (!exporting) return;
+      exporting = false;
+      resetButton();
+      showStatus('A exportacao demorou demais. Se o arquivo nao apareceu, tente com menos malhas.', 'err');
+    }, 180000);
+
     activeTabId(function (tabId) {
       if (tabId == null) {
+        exporting = false;
         resetButton();
         showStatus('Nao foi possivel acessar a aba ativa.', 'err');
         return;
       }
       chrome.tabs.sendMessage(tabId, { type: 'MDL_DOWNLOAD', options: currentOptions() }, function () {
         if (chrome.runtime.lastError) {
+          exporting = false;
           resetButton();
           showStatus('Recarregue a pagina e tente de novo.', 'err');
         }
@@ -763,6 +791,8 @@
       }
     } else if (request.type === 'MDL_RESULT') {
       var result = request.result || {};
+      exporting = false;
+      if (exportTimer) { clearTimeout(exportTimer); exportTimer = null; }
       resetButton();
       if (result.ok) {
         showStatus(filesSummary(result), 'ok');

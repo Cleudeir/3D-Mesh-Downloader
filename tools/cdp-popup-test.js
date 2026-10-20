@@ -55,6 +55,12 @@ function connect(url) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+let checksFailed = 0;
+function check(name, ok, detail) {
+  console.log('  ' + (ok ? '[ok] ' : '[FALHOU] ') + name + (ok ? '' : ' -> ' + detail));
+  if (!ok) checksFailed++;
+}
+
 async function evaluate(cdp, expression) {
   const res = await cdp.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
   if (res.error) throw new Error('evaluate: ' + JSON.stringify(res.error));
@@ -90,12 +96,12 @@ async function shot(cdp, name) {
 
   // Recarregar a extensao orfana o content script das abas ja abertas: a aba
   // alvo precisa ser recarregada para a extensao injetar de novo.
+  let pageCdp = null;
   if (tripo) {
-    const page = connect(tripo.webSocketDebuggerUrl);
-    await page.ready;
-    await page.send('Page.enable');
-    await page.send('Page.reload', { ignoreCache: false });
-    page.close();
+    pageCdp = connect(tripo.webSocketDebuggerUrl);
+    await pageCdp.ready;
+    await pageCdp.send('Page.enable');
+    await pageCdp.send('Page.reload', { ignoreCache: false });
     console.log('aba do Tripo recarregada (reinjecao do content script)');
     await sleep(3000);
   }
@@ -123,6 +129,11 @@ async function shot(cdp, name) {
     await sleep(1000);
     count = await evaluate(popup, `document.getElementById('meshCount').textContent`);
     if (count && count !== '-' && Number(count) > 0) break;
+    // o SPA as vezes nao se recupera de um reload: navega de novo e espera
+    if (i === 35 && pageCdp) {
+      console.log('  cena nao voltou apos o reload; navegando de novo...');
+      await pageCdp.send('Page.navigate', { url: tripo.url }).catch(() => {});
+    }
   }
   console.log('malhas: ' + count);
   await sleep(400);
@@ -324,18 +335,41 @@ async function shot(cdp, name) {
   });
   console.log('  destino dos downloads: ' + (dl.error ? JSON.stringify(dl.error) : DOWNLOADS));
   fs.readdirSync(DOWNLOADS).forEach((f) => { try { fs.unlinkSync(path.join(DOWNLOADS, f)); } catch (e) {} });
-  await evaluate(popup, `document.getElementById('downloadBtn').click()`);
 
-  let files = [];
-  for (let i = 0; i < 40; i++) {
+  // garante "unir tudo em um arquivo"
+  await evaluate(popup, `(() => {
+    const c = document.getElementById('optCombine');
+    c.checked = true;
+    c.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(300);
+
+  await evaluate(popup, `document.getElementById('downloadBtn').click()`);
+  await sleep(250);
+  console.log('  botao durante a exportacao: ' +
+    await evaluate(popup, `JSON.stringify({
+      texto: document.getElementById('downloadBtn').textContent,
+      desabilitado: document.getElementById('downloadBtn').disabled
+    })`));
+
+  let status = { texto: '', classe: '' };
+  for (let i = 0; i < 300; i++) {
     await sleep(500);
-    files = fs.readdirSync(DOWNLOADS);
-    if (files.length) break;
+    status = JSON.parse(await evaluate(popup, `JSON.stringify({
+      texto: document.getElementById('status').textContent,
+      classe: document.getElementById('status').className
+    })`));
+    if (status.classe.indexOf('show') !== -1 && status.texto) break;
   }
-  await sleep(1500);
-  files = fs.readdirSync(DOWNLOADS);
+  await sleep(2500);
+
+  const files = fs.readdirSync(DOWNLOADS);
   console.log('  arquivos: ' + JSON.stringify(files.map((f) => f + ' (' + fs.statSync(path.join(DOWNLOADS, f)).size + ' B)')));
-  console.log('  status no popup: ' + await evaluate(popup, `document.getElementById('status').textContent`));
+  console.log('  status no popup: ' + status.texto);
+  check('status final e de sucesso (sem erro transitorio do polling)',
+    status.classe.indexOf('ok') !== -1, status.classe + ' | ' + status.texto);
+  check('unir tudo gera um unico arquivo', files.length === 1, JSON.stringify(files));
   await shot(popup, 'popup-8-download');
 
   console.log('\n[9] preferencias sao lembradas ao reabrir');
@@ -374,5 +408,5 @@ async function shot(cdp, name) {
   console.log('\nfim');
   popup.close();
   browser.close();
-  process.exit(0);
+  process.exit(checksFailed ? 1 : 0);
 })().catch((e) => { console.error('falha:', e); process.exit(1); });
