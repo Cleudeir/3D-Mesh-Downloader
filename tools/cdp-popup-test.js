@@ -326,9 +326,13 @@ async function shot(cdp, name) {
     return true;
   })()`);
   await sleep(600);
-  console.log('  visiveis: ' + await evaluate(popup, `document.querySelectorAll('#modelList label').length`));
+
+  const visiveis = Number(await evaluate(popup, `document.querySelectorAll('#modelList label').length`)) || 0;
+  console.log('  visiveis: ' + visiveis);
   console.log('  formato: ' + await evaluate(popup, `document.getElementById('format').value`));
   console.log('  botao: ' + await evaluate(popup, `document.getElementById('downloadBtn').textContent`));
+  console.log('  opcao "unir tudo" existe? ' +
+    await evaluate(popup, `!!document.getElementById('optCombine')`));
 
   const DOWNLOADS = 'D:\\Projetos\\3d-mesh-downloader\\.downloads';
   const dl = await browser.send('Browser.setDownloadBehavior', {
@@ -336,15 +340,6 @@ async function shot(cdp, name) {
   });
   console.log('  destino dos downloads: ' + (dl.error ? JSON.stringify(dl.error) : DOWNLOADS));
   fs.readdirSync(DOWNLOADS).forEach((f) => { try { fs.unlinkSync(path.join(DOWNLOADS, f)); } catch (e) {} });
-
-  // garante "unir tudo em um arquivo"
-  await evaluate(popup, `(() => {
-    const c = document.getElementById('optCombine');
-    c.checked = true;
-    c.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  })()`);
-  await sleep(300);
 
   await evaluate(popup, `document.getElementById('downloadBtn').click()`);
   await sleep(250);
@@ -363,6 +358,12 @@ async function shot(cdp, name) {
     })`));
     if (status.classe.indexOf('show') !== -1 && status.texto) break;
   }
+
+  // os arquivos saem escalonados (250 ms entre cliques)
+  for (let i = 0; i < 40; i++) {
+    if (fs.readdirSync(DOWNLOADS).length >= visiveis) break;
+    await sleep(500);
+  }
   await sleep(2500);
 
   const files = fs.readdirSync(DOWNLOADS);
@@ -370,34 +371,10 @@ async function shot(cdp, name) {
   console.log('  status no popup: ' + status.texto);
   check('status final e de sucesso (sem erro transitorio do polling)',
     status.classe.indexOf('ok') !== -1, status.classe + ' | ' + status.texto);
-  check('unir tudo gera um unico arquivo', files.length === 1, JSON.stringify(files));
+  check('sai um arquivo por malha', files.length === visiveis,
+    files.length + ' arquivos para ' + visiveis + ' malhas');
   await shot(popup, 'popup-8-download');
 
-  console.log('\n[8b] sem "unir tudo" o popup avisa em vez de baixar N arquivos');
-  await evaluate(popup, `(() => {
-    const c = document.getElementById('optCombine');
-    c.checked = false;
-    c.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  })()`);
-  await sleep(400);
-  const antesArquivos = fs.readdirSync(DOWNLOADS).length;
-  await evaluate(popup, `document.getElementById('downloadBtn').click()`);
-  await sleep(1500);
-  const aviso = JSON.parse(await evaluate(popup, `JSON.stringify({
-    texto: document.getElementById('status').textContent,
-    classe: document.getElementById('status').className
-  })`));
-  check('avisa sobre o bloqueio de downloads multiplos',
-    aviso.classe.indexOf('err') !== -1 && aviso.texto.indexOf('Unir tudo') !== -1, aviso.texto);
-  check('e nao dispara downloads',
-    fs.readdirSync(DOWNLOADS).length === antesArquivos, String(fs.readdirSync(DOWNLOADS).length));
-  await evaluate(popup, `(() => {
-    const c = document.getElementById('optCombine');
-    c.checked = true;
-    c.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  })()`);
 
   console.log('\n[9] preferencias sao lembradas ao reabrir');
   await evaluate(popup, `(() => {
@@ -419,11 +396,10 @@ async function shot(cdp, name) {
     normais: document.getElementById('optNormals').checked,
     criterio: document.getElementById('excludeSizeMode').value + ' ' + document.getElementById('excludeSizeKB').value,
     listaTamanho: document.querySelectorAll('#sizeList .pattern').length,
-    combinar: document.getElementById('optCombine').checked,
     aba: document.querySelector('.tab[aria-selected="true"]').dataset.tab
   })`));
-  check('"unir tudo" volta marcado ao reabrir',
-    (await evaluate(popup, `document.getElementById('optCombine').checked`)) === true);
+  check('a opcao "unir tudo" nao existe mais',
+    (await evaluate(popup, `!document.getElementById('optCombine')`)) === true);
   await shot(popup, 'popup-12-preferencias-lembradas');
 
   // devolve o padrao (STL + normais)

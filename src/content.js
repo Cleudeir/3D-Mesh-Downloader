@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2.2.0';
+  var VERSION = '2.3.0';
 
   // --- page -> popup -------------------------------------------------------
   var infoWaiters = [];
@@ -86,6 +86,16 @@
       return true;
     }
 
+    // O popup pede antes de recarregar a extensao: a pagina se recarrega para
+    // reinjetar o content script novo (o antigo morre junto com a extensao).
+    if (request.type === 'MDL_RELOAD_PAGE') {
+      sendResponse({ status: 'reloading' });
+      setTimeout(function () {
+        try { location.reload(); } catch (e) { /* aba fechando */ }
+      }, 1200);
+      return true;
+    }
+
     return false;
   });
 
@@ -97,7 +107,7 @@
       uvs: 'on',
       expandInstances: true,
       materials: 'on',
-      combine: params.get('combine') !== '0',
+      combine: params.get('combine') === '1',
       format: params.get('format') || 'obj',
       filter: {
         text: params.get('text') || '',

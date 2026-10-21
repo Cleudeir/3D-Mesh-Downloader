@@ -68,10 +68,6 @@ O popup é dividido em **abas**, no estilo do Chrome:
 | **Exclusão** | padrões que nunca entram no arquivo e a prévia do que está sendo excluído |
 | **Exportar** | formato (OBJ/STL) e as opções de exportação |
 
-**"Unir tudo em um único arquivo" já vem marcado** — e volta marcado a cada abertura.
-Com vários arquivos o Chrome bloqueia downloads múltiplos e entrega só o primeiro;
-se você desmarcar e tentar baixar várias malhas, o popup avisa em vez de baixar.
-
 O botão **Baixar** e o **Atualizar contagem** ficam na aba **Modelos**, junto da
 lista; as outras abas cuidam só de configuração. A barra de status continua
 visível em qualquer aba. O badge de cada aba resume o estado (malhas
@@ -180,7 +176,9 @@ No modelo real do Tripo (352.853 faces): **OBJ 36,5 MB → STL 16,8 MB**.
 | Exportar UVs (`vt`) | ligado | Exporta o atributo `uv` quando existir |
 | Expandir `InstancedMesh` | ligado | Uma malha por instância, aplicando a matriz de cada uma |
 | Exportar materiais (`.mtl`) | ligado | Gera `newmtl`, `Kd`, `Pr`, `Pm` e `map_Kd` |
-| Unir tudo em um único `.obj` | ligado | **1 `.obj` + 1 `.mtl`** em vez de N downloads (contorna o limite do Chrome) |
+
+Cada malha vira **um arquivo**: um `.stl` por malha, ou um `.obj` + `.mtl`.
+Se o Chrome perguntar se pode baixar vários arquivos, clique em **Permitir**.
 
 ### Filtro por nome e por tamanho
 

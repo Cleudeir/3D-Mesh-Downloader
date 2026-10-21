@@ -22,7 +22,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2.2.0';
+  var VERSION = '2.3.0';
   var INSTALL_FLAG = '__THREE_MESH_DOWNLOADER_INSTALLED__';
 
   // Guard against double injection (content script + manual run).

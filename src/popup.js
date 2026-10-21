@@ -28,13 +28,11 @@
     optUvs: document.getElementById('optUvs'),
     optInstances: document.getElementById('optInstances'),
     optMaterials: document.getElementById('optMaterials'),
-    optCombine: document.getElementById('optCombine'),
     format: document.getElementById('format'),
     stlNote: document.getElementById('stlNote'),
     optNormalsRow: document.getElementById('optNormalsRow'),
     optUvsRow: document.getElementById('optUvsRow'),
     optMaterialsRow: document.getElementById('optMaterialsRow'),
-    combineLabel: document.getElementById('combineLabel'),
     excludeInput: document.getElementById('excludeInput'),
     addExclude: document.getElementById('addExclude'),
     clearExclude: document.getElementById('clearExclude'),
@@ -46,7 +44,8 @@
     excludeSizeMode: document.getElementById('excludeSizeMode'),
     excludeSizeKB: document.getElementById('excludeSizeKB'),
     tabBadgeModels: document.getElementById('tabBadgeModels'),
-    tabBadgeExclude: document.getElementById('tabBadgeExclude')
+    tabBadgeExclude: document.getElementById('tabBadgeExclude'),
+    reloadExt: document.getElementById('reloadExt')
   };
 
   var ACTIVE_TAB_KEY = 'popupTab';
@@ -162,7 +161,6 @@
     // "unir tudo" fica sempre ligado ao abrir: com varios arquivos o Chrome
     // bloqueia downloads multiplos e o usuario recebe so o primeiro (era o
     // "veio so 1 esfera"). Se quiser arquivos separados, desmarque na sessao.
-    els.optCombine.checked = true;
   }
 
   function savePatterns() {
@@ -678,9 +676,6 @@
     els.optNormalsRow.style.display = isSTL ? 'none' : '';
     els.optUvsRow.style.display = isSTL ? 'none' : '';
     els.optMaterialsRow.style.display = isSTL ? 'none' : '';
-    els.combineLabel.firstChild.nodeValue = isSTL
-      ? 'Unir tudo em um unico arquivo STL'
-      : 'Unir tudo em um unico .obj';
   }
 
   // ---------------------------------------------------------------------------
@@ -768,7 +763,8 @@
       uvs: els.optUvs.checked ? 'on' : 'none',
       expandInstances: els.optInstances.checked,
       materials: els.optMaterials.checked ? 'on' : 'none',
-      combine: els.optCombine.checked,
+      // sempre um arquivo por malha (a opcao "unir tudo" foi removida)
+      combine: false,
       format: currentFormat(),
       filter: {
         text: filter.text,
@@ -789,12 +785,6 @@
     }
     // Um arquivo por malha = N downloads; o Chrome bloqueia downloads multiplos
     // e o usuario recebe so o primeiro. Melhor avisar do que entregar 1 e calar.
-    if (!els.optCombine.checked && selected.length > 1) {
-      showStatus('Sao ' + selected.length + ' malhas e "Unir tudo em um unico arquivo" esta ' +
-        'desmarcado: o Chrome bloquearia os ' + selected.length + ' downloads e chegaria so o ' +
-        'primeiro. Marque a opcao na aba Exportar (ou selecione 1 malha).', 'err');
-      return;
-    }
     hideStatus();
     exporting = true;
     els.download.disabled = true;
@@ -876,12 +866,18 @@
   function filesSummary(result) {
     var stats = result.stats || {};
     var parts = [];
-    if (result.files && result.files.length) parts.push(result.files.join(', '));
+    var files = result.files || [];
+    if (files.length === 1) parts.push(files[0]);
+    else if (files.length > 1) {
+      parts.push(files.length + ' arquivos (' + files.slice(0, 2).join(', ') +
+        (files.length > 2 ? ', …' : '') + ')');
+    }
     if (stats.faces) {
       parts.push(fmtCount(stats.faces) + ' faces · ' + fmtCount(stats.vertices) + ' vertices · ' +
         fmtCount(stats.meshes) + ' objetos');
     }
     if (result.bytes) parts.push(fmtSize(result.bytes));
+    if (files.length > 3) parts.push('se o Chrome pedir, clique em Permitir varios downloads');
     return parts.join(' — ');
   }
 
@@ -913,7 +909,7 @@
 
   // formato e opcoes ficam salvos: reabrir o popup nao volta tudo ao padrao
   [els.optTransforms, els.optNormals, els.optUvs,
-   els.optInstances, els.optMaterials, els.optCombine].forEach(function (box) {
+   els.optInstances, els.optMaterials].forEach(function (box) {
     box.addEventListener('change', function () {
       saveSettings();
       updateSelectionPill();
@@ -980,6 +976,25 @@
 
   els.excludeSizeMode.addEventListener('change', onSizeRuleChange);
   els.excludeSizeKB.addEventListener('input', onSizeRuleChange);
+
+  // --- atualizar a extensao -------------------------------------------------
+  // Recarrega a extensao do disco (o Chrome rele os arquivos de uma extensao
+  // descompactada) e, antes disso, manda a aba se recarregar para reinjetar o
+  // content script novo. Sem isso o usuario precisa de chrome://extensions + F5.
+  if (els.reloadExt) {
+    els.reloadExt.addEventListener('click', function () {
+      els.reloadExt.textContent = '\u2026';
+      showStatus('Atualizando a extensao e recarregando a pagina...', 'ok');
+      activeTabId(function (tabId) {
+        if (tabId != null) {
+          try { chrome.tabs.sendMessage(tabId, { type: 'MDL_RELOAD_PAGE' }); } catch (e) { /* aba sumiu */ }
+        }
+        setTimeout(function () {
+          try { chrome.runtime.reload(); } catch (e) { /* sem permissao */ }
+        }, 400);
+      });
+    });
+  }
 
   els.addSizeExclude.addEventListener('click', function () {
     onSizeRuleChange();

@@ -50,6 +50,21 @@
     header h1 { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
     header span { display: block; font-size: 11px; color: var(--muted); font-weight: 400; }
     header span.stale { color: var(--err); font-weight: 600; }
+    .icon-btn {
+      margin-left: auto;
+      flex: none;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .icon-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 
     /* ---------- faixa de abas (estilo Chrome) ---------- */
     .tabstrip {
@@ -420,7 +435,8 @@
       <path d="M12 17.6v2.9"/>
       <path d="M9.6 18.9 12 21.3 14.4 18.9"/>
     </svg>
-    <h1>3D Mesh Downloader <span id="version">v2.2.0</span></h1>
+    <h1>3D Mesh Downloader <span id="version">v2.3.0</span></h1>
+    <button type="button" id="reloadExt" class="icon-btn" title="Atualizar a extensao (rele do disco) e recarregar a pagina">&#8635;</button>
   </header>
 
   <nav class="tabstrip" role="tablist" aria-label="Secoes da extensao">
@@ -580,13 +596,11 @@
           <input type="checkbox" id="optMaterials" checked>
           <span>Exportar materiais (.mtl)</span>
         </label>
-        <label class="opt">
-          <input type="checkbox" id="optCombine" checked>
-          <span id="combineLabel">Unir tudo em um unico arquivo
-            <small>Evita o limite de downloads multiplos do Chrome</small>
-          </span>
-        </label>
       </div>
+      <p class="hint" style="margin:9px 0 0;">
+        Cada malha vira <b>um arquivo</b> (STL) ou um <b>.obj + .mtl</b>. Se o Chrome
+        perguntar se pode baixar varios arquivos, clique em <b>Permitir</b>.
+      </p>
     </section>
   </div>
 
