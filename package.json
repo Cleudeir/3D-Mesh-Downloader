@@ -1,6 +1,6 @@
 {
   "name": "3d-mesh-downloader",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "Extensao Chrome que exporta a cena Three.js de qualquer pagina para OBJ (+MTL) ou STL, com normais, UVs, materiais, transformacoes de mundo, filtros e lista de exclusao.",
   "private": false,
   "author": "Cleudeir",

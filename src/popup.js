@@ -45,7 +45,10 @@
     excludeSizeKB: document.getElementById('excludeSizeKB'),
     tabBadgeModels: document.getElementById('tabBadgeModels'),
     tabBadgeExclude: document.getElementById('tabBadgeExclude'),
-    reloadExt: document.getElementById('reloadExt')
+    reloadExt: document.getElementById('reloadExt'),
+    staleBar: document.getElementById('staleBar'),
+    staleText: document.getElementById('staleText'),
+    staleFix: document.getElementById('staleFix')
   };
 
   var ACTIVE_TAB_KEY = 'popupTab';
@@ -54,6 +57,7 @@
   var selection = new Set();  // ids the user wants to export
   var excludePatterns = [];   // lista por nome (curingas)
   var sizeExcluded = [];      // lista por tamanho (nomes exatos, materializados)
+  var sizeIgnored = [];       // nomes que o usuario devolveu: nao voltam sozinhos
   var sizeRule = { mode: 'below', kb: 50 }; // criterio usado para montar a lista
   var sizeScanned = false;    // o scan automatico inicial ja rodou
   var pollTimer = null;
@@ -65,6 +69,7 @@
 
   var STORAGE_KEY = 'excludePatterns';
   var STORAGE_KEY_SIZE_LIST = 'sizeExcluded';
+  var STORAGE_KEY_SIZE_IGNORED = 'sizeIgnored';
   var STORAGE_KEY_SIZE_RULE = 'sizeRule';
   var STORAGE_KEY_SCANNED = 'sizeScanned';
   var STORAGE_KEY_SETTINGS = 'settings';
@@ -90,7 +95,7 @@
     // chrome.storage.local.get() faz merge raso do default com o valor salvo e
     // injeta campos que nao estao gravados.
     var keys = [
-      STORAGE_KEY, STORAGE_KEY_SIZE_LIST, STORAGE_KEY_SIZE_RULE,
+      STORAGE_KEY, STORAGE_KEY_SIZE_LIST, STORAGE_KEY_SIZE_IGNORED, STORAGE_KEY_SIZE_RULE,
       STORAGE_KEY_SCANNED, STORAGE_KEY_SETTINGS, ACTIVE_TAB_KEY, 'excludeSize'
     ];
 
@@ -102,6 +107,8 @@
 
       var savedList = items[STORAGE_KEY_SIZE_LIST];
       sizeExcluded = Array.isArray(savedList) ? savedList.filter(Boolean).map(String) : [];
+      var ignored = items[STORAGE_KEY_SIZE_IGNORED];
+      sizeIgnored = Array.isArray(ignored) ? ignored.filter(Boolean).map(String) : [];
       sizeScanned = items[STORAGE_KEY_SCANNED] === true;
 
       // criterio: chave nova; a antiga (excludeSize) serve de migracao
@@ -173,7 +180,10 @@
 
   function saveSizeList() {
     try {
-      chrome.storage.local.set({ [STORAGE_KEY_SIZE_LIST]: sizeExcluded });
+      var payload = {};
+      payload[STORAGE_KEY_SIZE_LIST] = sizeExcluded;
+      payload[STORAGE_KEY_SIZE_IGNORED] = sizeIgnored;
+      chrome.storage.local.set(payload);
     } catch (e) {
       /* storage indisponivel */
     }
@@ -233,11 +243,12 @@
     updateExcludeBadge();
   }
 
-  /** Tira um nome da lista por tamanho (o modelo volta a ser exportavel). */
+  /** Tira um nome da lista por tamanho (o modelo volta e nao e re-adicionado). */
   function removeSizeExcluded(name) {
     var i = sizeExcluded.indexOf(name);
     if (i === -1) return;
     sizeExcluded.splice(i, 1);
+    if (sizeIgnored.indexOf(name) === -1) sizeIgnored.push(name);
     saveSizeList();
     renderSizeList();
     requestInfo();
@@ -261,6 +272,7 @@
       // grande com nome repetido caia junto com um pequeno homonimo
       var entry = model.exportName || model.name;
       if (sizeExcluded.indexOf(entry) !== -1) return;
+      if (sizeIgnored.indexOf(entry) !== -1) return; // o usuario devolveu este
       sizeExcluded.push(entry);
       added++;
     });
@@ -490,27 +502,21 @@
       ? 'malhas encontradas · ' + excluded + ' excluída(s)'
       : (info.count === 1 ? 'malha encontrada' : 'malhas encontradas');
 
-    // Primeiro contato com a pagina: monta a lista "por tamanho" uma unica vez.
-    // Depois disso ela so muda quando o usuario clica em Adicionar ou remove
-    // um nome - e por isso que a lista nao fica piscando.
-    if (!sizeScanned && models.length) {
-      sizeScanned = true;
-      saveSizeRule();
-      scanBySize();
-    }
-
-    // O popup consulta a pagina a cada 2 s. Reconstruir as listas quando nada
-    // mudou zerava o scroll a cada poll (o usuario nao conseguia rolar as
-    // excluidas), entao so redesenha quando o conteudo realmente muda.
+    // So redesenha quando o conteudo realmente muda: reconstruir as listas a
+    // cada poll zerava o scroll e piscava.
     var signature = models.map(function (m) {
       return m.id + '|' + m.name + '|' + (m.excluded ? 1 : 0) + '|' + (m.excludedBy || '') +
         '|' + (m.vertexCount || 0) + '|' + (m.faceCount || 0) + '|' + (m.instances || 1);
     }).join(',');
 
+    // A cena do Tripo carrega em ondas: a cada mudanca real na lista de malhas,
+    // acompanha as novas (so adiciona nomes, nunca remove) - a lista cresce
+    // durante o carregamento e depois fica estavel.
     if (signature !== lastInfoSignature) {
       lastInfoSignature = signature;
       renderList();
       renderExcludePreview();
+      scanBySize();
     }
     updateSelectionPill();
   }
@@ -628,7 +634,8 @@
       excl.type = 'button';
       excl.className = 'excl';
       excl.textContent = model.excluded ? '\u21ba' : '\u2298';
-      var excludedBySize = model.excludedBy === 'tamanho';
+      var excludedBySize = model.excludedBy === 'tamanho' ||
+        (model.excludedBy && sizeExcluded.indexOf(model.excludedBy) !== -1);
       excl.title = model.excluded
         ? (excludedBySize
             ? 'excluido pela lista de tamanho (clique para devolver)'
@@ -736,7 +743,9 @@
       }
       chrome.tabs.sendMessage(tabId, {
         type: 'MDL_GET_INFO',
-        exclude: excludePatterns,
+        // os nomes da lista de tamanho vao tambem como padrão: assim uma pagina
+        // com content script antigo (que so conhece "exclude") respeita a lista
+        exclude: excludePatterns.concat(sizeExcluded),
         excludeExact: sizeExcluded,
         format: currentFormat()
       }, function () {
@@ -771,7 +780,7 @@
         minKB: filter.minKB,
         maxKB: filter.maxKB,
         include: selectedVisibleModels().map(function (m) { return m.id; }),
-        exclude: excludePatterns.slice(),
+        exclude: excludePatterns.concat(sizeExcluded),
         excludeExact: sizeExcluded.slice()
       }
     };
@@ -839,9 +848,15 @@
           els.version.classList.add('stale');
           els.version.title = 'A pagina esta com a versao ' + request.version +
             ' e a extensao instalada e ' + extensionVersion + '. Recarregue a pagina (F5).';
+          if (els.staleBar) {
+            els.staleBar.hidden = false;
+            els.staleText.textContent = 'Pagina com v' + request.version + ' · extensao v' +
+              extensionVersion + '. A exclusao e o formato novos nao valem ate recarregar.';
+          }
         } else {
           els.version.classList.remove('stale');
           els.version.title = '';
+          if (els.staleBar) els.staleBar.hidden = true;
         }
       }
       var signature = (request.info.models || []).map(function (m) { return m.id; }).join(',');
@@ -981,26 +996,40 @@
   // Recarrega a extensao do disco (o Chrome rele os arquivos de uma extensao
   // descompactada) e, antes disso, manda a aba se recarregar para reinjetar o
   // content script novo. Sem isso o usuario precisa de chrome://extensions + F5.
+  function updateExtensionAndPage() {
+    showStatus('Atualizando a extensao e recarregando a pagina...', 'ok');
+    activeTabId(function (tabId) {
+      if (tabId != null) {
+        try { chrome.tabs.sendMessage(tabId, { type: 'MDL_RELOAD_PAGE' }); } catch (e) { /* aba sumiu */ }
+      }
+      setTimeout(function () {
+        try { chrome.runtime.reload(); } catch (e) { /* sem permissao */ }
+      }, 400);
+    });
+  }
+
   if (els.reloadExt) {
     els.reloadExt.addEventListener('click', function () {
       els.reloadExt.textContent = '\u2026';
-      showStatus('Atualizando a extensao e recarregando a pagina...', 'ok');
-      activeTabId(function (tabId) {
-        if (tabId != null) {
-          try { chrome.tabs.sendMessage(tabId, { type: 'MDL_RELOAD_PAGE' }); } catch (e) { /* aba sumiu */ }
-        }
-        setTimeout(function () {
-          try { chrome.runtime.reload(); } catch (e) { /* sem permissao */ }
-        }, 400);
-      });
+      updateExtensionAndPage();
+    });
+  }
+  if (els.staleFix) {
+    els.staleFix.addEventListener('click', function () {
+      els.staleFix.textContent = '\u2026';
+      updateExtensionAndPage();
     });
   }
 
   els.addSizeExclude.addEventListener('click', function () {
     onSizeRuleChange();
-    sizeScanned = true;
-    saveSizeRule();
+    // "Adicionar" reconstroi a lista: o que foi devolvido volta a entrar
+    sizeIgnored = [];
     var added = scanBySize();
+    if (!added) {
+      saveSizeList();
+      renderSizeList();
+    }
     showStatus(added
       ? added + (added === 1 ? ' nome adicionado' : ' nomes adicionados') + ' a lista por tamanho.'
       : 'Nenhum nome novo casou com o criterio.',
@@ -1008,7 +1037,12 @@
   });
 
   els.clearSizeExclude.addEventListener('click', function () {
-    if (!sizeExcluded.length) return;
+    if (!sizeExcluded.length && !sizeIgnored.length) return;
+    // "limpar" = nao quero estes: tudo que casaria agora fica ignorado e nao volta
+    models.forEach(function (model) {
+      var entry = model.exportName || model.name;
+      if (sizeIgnored.indexOf(entry) === -1) sizeIgnored.push(entry);
+    });
     sizeExcluded = [];
     saveSizeList();
     renderSizeList();

@@ -22,7 +22,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '2.3.0';
+  var VERSION = '2.3.1';
   var INSTALL_FLAG = '__THREE_MESH_DOWNLOADER_INSTALLED__';
 
   // Guard against double injection (content script + manual run).
@@ -1356,8 +1356,9 @@
     // only plain data goes through postMessage (structured clone)
     var excludedCount = 0;
     var modelList = models.map(function (m) {
-      var excludedBy = exclusionMatch(m, excludePatterns) ||
-        exactExclusion(m, excludeExact) ||
+      // exato primeiro: a marcacao sai como "tamanho" tambem nas versoes novas
+      var excludedBy = exactExclusion(m, excludeExact) ||
+        exclusionMatch(m, excludePatterns) ||
         sizeExclusion(m, excludeSize, format);
       if (excludedBy) excludedCount++;
       return {
