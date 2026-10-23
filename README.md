@@ -250,7 +250,7 @@ Base_Thickness = 2 × maior_raio + 2 × parede_mínima
 | Parede mínima | 1,6 mm | parede em volta do furo |
 | Tampão | 2 mm | disco com o diâmetro do furo que fecha a saída do cone (0 = furo aberto nas duas pontas) |
 | Topo | 1,5 mm | espessura da peça branca |
-| Colunas / Espaço X / Y | 4 / 60 / 40 mm | grade da mesa |
+| Colunas / Espaçamento | 4 / 10 mm | a grade é calculada pelo tamanho de cada peça, com essa folga entre elas |
 | Dist. separado / ambos | 40 / 45 mm | afastamento entre as peças |
 | Qualidade | 0,15 mm | passo da malha (0,30 rápida … 0,07 muito alta) |
 
@@ -280,6 +280,77 @@ que acontece no `.scad`, cuja parede lateral chega a ficar com menos de 1 mm).
 
 No modo **ponteiras**, o contorno são as letras e cada ponta recebe um disco com
 o furo do seu lado — é o que fecha a ponta direita no diâmetro menor.
+
+---
+
+## Estúdio IA (criador de geometria)
+
+A aba **IA** abre uma página inteira com **chat à esquerda e ambiente 3D à direita**.
+Você descreve a peça; um agente especializado escreve um **script JavaScript de
+geometria**, executa no navegador, tira capturas em vários ângulos e corrige até
+ficar como você pediu.
+
+### Dois modelos, um pipeline
+
+| Papel | Modelo padrão | Protocolo | Por quê |
+|---|---|---|---|
+| Agente (escreve o script) | **DeepSeek V4.1 Flash** | `chat/completions` | bom em código, barato, contexto longo |
+| Inspetor de visão (olha as capturas) | **GPT 5.6 Luna** | `responses` | multimodal barato; devolve um laudo em texto |
+
+As imagens **não entram no contexto do agente**: depois de cada execução o estúdio
+captura perspectiva, topo, baixo, frente e lados, manda para o inspetor e entrega
+ao agente só o laudo textual + as medidas. Isso mantém o custo baixo e o agente
+focado no código. Os dois modelos podem ser trocados em **Ajustes**.
+
+### Objetos = conversas
+
+Cada objeto guarda **a própria conversa, o script, as versões, o rascunho do editor,
+as medidas, as anotações e a miniatura**. Trocar de objeto na biblioteca troca a
+conversa; **Novo objeto** começa uma conversa em branco. Tudo é persistido em
+`chrome.storage.local` e restaurado ao reabrir a página, inclusive a aba do painel,
+a vista 3D e a conversa em andamento.
+
+### O script é a memória
+
+O script gerado fica no editor, visível e editável (Ctrl+Enter executa). Cada
+execução bem-sucedida vira uma versão; a biblioteca guarda as últimas 12. O agente
+recebe o script atual e a lista de objetos no contexto e pode reaproveitar
+soluções anteriores com `load_object`.
+
+### Trabalho por partes
+
+Para objetos complexos o agente decompõe o pedido em 4 a 8 partes com
+`plan_parts` e constrói **uma parte por vez**. Cada parte é um item separado em
+`parts`; `run_geometry` com `focus="asa esquerda"` isola essa parte na cena e faz
+o inspetor de visão receber capturas **só dela**. A barra **PARTES** mostra o
+plano, o que já foi construído e revisado; clicar em uma peça isola na hora. No
+final, o agente roda sem `focus` para conferir o conjunto. O STL sempre junta
+todas as partes.
+
+### Kernel de geometria
+
+Tudo em milímetros, Z para cima, com booleanas BSP e malhas fechadas:
+
+- **Primitivas**: `box`, `roundedBox`, `cylinder`, `cone`, `sphere`, `torus`,
+  `tube`, `prism` (contorno com furos) e `text` (fonte Chewy).
+- **Modelagem livre**: `lathe` (revolução de perfil), `loft` (anéis),
+  `sweep` (perfil ao longo de um caminho 3D), `merge` (une sem CSG) e utilitários
+  `circle`/`ellipse`.
+- **Transformações**: `translate`, `rotate`, `scale`, `mirror` (aceitam array ou
+  três números) e `onBed`.
+- **Medições**: volume, área, caixa envolvente, triângulos e diagnóstico de
+  junções T/arestas não-manifold.
+
+O agente é instruído a compor objetos complexos (lathe + loft + sweep + booleanas),
+não apenas caixas e cilindros. O script roda em um **sandbox** declarado no
+manifest, dentro de um **blob worker**: sem DOM, sem `chrome.*` e sem acesso à
+chave da API, com timeout de 25 s e possibilidade de encerrar o worker.
+
+### Chave e privacidade
+
+A chave da **OpenCode Go** é colada em Ajustes e fica só em
+`chrome.storage.local`; as chamadas vão direto para `opencode.ai` (host permission
+declarada no manifest). A extensão não envia nada para outros servidores.
 
 ---
 

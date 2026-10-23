@@ -14,8 +14,7 @@
     mode: document.getElementById('mode'),
     pieces: document.getElementById('pieces'),
     columns: document.getElementById('columns'),
-    spacingX: document.getElementById('spacingX'),
-    spacingY: document.getElementById('spacingY'),
+    gap: document.getElementById('gap'),
     distanceSeparate: document.getElementById('distanceSeparate'),
     distanceBoth: document.getElementById('distanceBoth'),
     fontSelect: document.getElementById('fontSelect'),
@@ -61,7 +60,7 @@
   // estado do formulario
   // ---------------------------------------------------------------------------
 
-  var FIELDS = ['names', 'mode', 'pieces', 'columns', 'spacingX', 'spacingY',
+  var FIELDS = ['names', 'mode', 'pieces', 'columns', 'gap',
     'distanceSeparate', 'distanceBoth', 'fontSize', 'border', 'holeIn', 'holeOut', 'holeStyle', 'plug',
     'minWall', 'topThickness', 'quality', 'baseColor', 'topColor'];
 
@@ -101,8 +100,7 @@
       minWall: numberValue(els.minWall, 1.6, 0.2, 20),
       topThickness: numberValue(els.topThickness, 1.5, 0.3, 20),
       columns: Math.round(numberValue(els.columns, 4, 1, 40)),
-      spacingX: numberValue(els.spacingX, 220, 5, 10000),
-      spacingY: numberValue(els.spacingY, 160, 5, 10000),
+      gap: numberValue(els.gap, 10, 0, 10000),
       distanceSeparate: numberValue(els.distanceSeparate, 40, 0, 10000),
       distanceBoth: numberValue(els.distanceBoth, 45, 0, 10000),
       mode: els.mode.value,
@@ -382,7 +380,12 @@
     var widths = names.map(function (name) {
       return font.layout(name, params.fontSize).width;
     });
-    var text = NomesParts.scadText(names, params, fontName, widths);
+    // posicoes da grade calculadas pelo tamanho de cada peca
+    var scadPieces = names.map(function (name) {
+      return NomesParts.buildPiece(font.layout(name, params.fontSize), params);
+    });
+    var scadLayout = NomesParts.buildLayout(scadPieces, params);
+    var text = NomesParts.scadText(names, params, fontName, widths, scadLayout.placement);
     download(text, baseFileName() + '.scad', 'text/plain');
     showStatus('Arquivo .scad gerado. Abra no OpenSCAD (F6) para renderizar.', 'ok');
   }

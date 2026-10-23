@@ -838,6 +838,25 @@ section('18. Gerador de nomes (fonte, geometria e STL)');
     NomesParts.bounds(NomesParts.buildLayout(pieces, NomesParts.params({ columns: 1 })).base).size[0] <
     NomesParts.bounds(NomesParts.buildLayout(pieces, NomesParts.params({ columns: 2 })).base).size[0], true);
 
+  // --- grade automatica: celula do tamanho de cada peca + espacamento ---
+  const autoParams = NomesParts.params({ gap: 10, columns: 2, mode: 'juntos' });
+  const autoPieces = ['LIZ', 'GABRIEL', 'ANA'].map((name) => NomesParts.buildPiece(font.layout(name, 15), autoParams));
+  const auto = NomesParts.buildLayout(autoPieces, autoParams);
+  const pairParams = NomesParts.params({ gap: 10, columns: 2, mode: 'juntos' });
+  const pairPieces = ['LIZ', 'GABRIEL'].map((name) => NomesParts.buildPiece(font.layout(name, 15), pairParams));
+  const pair = NomesParts.buildLayout(pairPieces, pairParams);
+  const right0 = pair.placement[0].x + pairPieces[0].bbox.max[0];
+  const left1 = pair.placement[1].x + pairPieces[1].bbox.min[0];
+  check('grade automatica: 10 mm entre as pecas na linha',
+    Math.abs((left1 - right0) - 10) < 0.25, (left1 - right0).toFixed(2));
+  const bottom0 = auto.placement[0].y + autoPieces[0].bbox.min[1];
+  const top2 = auto.placement[2].y + autoPieces[2].bbox.max[1];
+  check('grade automatica: 10 mm entre as linhas',
+    Math.abs((bottom0 - top2) - 10) < 0.25, (bottom0 - top2).toFixed(2));
+  check('grade automatica: as duas pecas da mesma linha ficam alinhadas pelo centro',
+    Math.abs((auto.placement[0].y + (autoPieces[0].bbox.min[1] + autoPieces[0].bbox.max[1]) / 2) -
+      (auto.placement[1].y + (autoPieces[1].bbox.min[1] + autoPieces[1].bbox.max[1]) / 2)) < 0.25);
+
   // --- STL ---
   const stl = NomesParts.stlBinary([together.base, together.top]);
   const stlView = new DataView(stl);

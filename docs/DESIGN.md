@@ -228,7 +228,9 @@ triângulos), o que é verificado nos testes.
 ### Exportação
 
 - **STL binário**, em milímetros, com todas as peças já na grade (`colunas`,
-  `espaço X/Y`), igual ao `for` do `.scad`. Uma peça por nome, ou o lote todo.
+  `espaçamento`): a célula de cada coluna/linha é a maior peça que cai nela, e cada peça
+fica centralizada. O `.scad` exportado leva as posições já calculadas (`Posicoes`).
+Uma peça por nome, ou o lote todo.
 - **`.scad`**: o mesmo desenho como código, com os parâmetros escolhidos. O
   gerador usa a largura real do texto, então o `.scad` exportado mantém a
   estrutura do original (`2dPonteETexto`, `generateBasePeca`, `generateTopoPeca`)
@@ -532,3 +534,63 @@ para uma pasta local.
 - Content scripts em `<all_urls>` — necessário para injetar antes do three.js
   da página.
 - O arquivo gerado fica **no disco do usuário**; nada sai do navegador.
+
+## Estúdio IA
+
+| Arquivo | Papel |
+|---|---|
+| `src/ia.html` / `src/ia.js` | Interface: chat, cena, biblioteca, editor de script, ajustes |
+| `src/ia/kernel.js` | Kernel de geometria: primitivas, CSG BSP, lathe/loft/sweep, medições, STL |
+| `src/ia/render.js` | Rasterizador em canvas: z-buffer, vistas ortográficas, capturas |
+| `src/ia/api.js` | Cliente OpenCode Go: `chat/completions` (agente) e `responses` (visão) |
+| `src/ia/agent.js` | Ciclo do agente: prompt, ferramentas, streaming, histórico |
+| `src/ia/sandbox.html` / `sandbox.js` | Página em `sandbox.pages` (CSP com unsafe-eval) |
+| `src/ia/runner.js` | Executor concatenado no blob worker do sandbox |
+
+**Por que sandbox?** A CSP padrão de páginas de extensão (MV3) proíbe `eval`/
+`new Function`. O agente precisa rodar o script que escreveu, então a execução
+fica em uma página declarada em `sandbox.pages`, com CSP própria
+(`script-src 'self' 'unsafe-eval' blob:`). Essa página abre um **blob worker**
+com `field.js + font.js + kernel.js + runner.js`:
+- o worker não tem DOM, `chrome.*` nem a chave da API;
+- o script pode ser interrompido: a página principal mata o worker após 25 s e
+  sobe outro;
+- o sandbox não cria workers a partir de URLs `chrome-extension://` (origem
+  opaca), por isso o worker é um blob.
+
+**Dois modelos.** O agente principal (`deepseek-v4.1-flash`) só escreve/edita
+código. As capturas vão para `gpt-5.6-luna` via Responses API, que devolve um
+laudo em texto. O agente nunca recebe imagens: o pipeline é
+`script → malha → capturas → laudo → ajuste`.
+
+**Objeto ↔ conversa.** O objeto é a unidade de memória: `script`, `draft`,
+`chat`, `transcript`, `versions`, `stats`, `thumb`, `notes`, `lastRequest`.
+`currentId` e a conversa visível são persistidos; abrir um objeto troca o chat e
+o agente; "Novo objeto" começa uma conversa vazia. A gravação é debounced em
+`chrome.storage.local` e também no `beforeunload`.
+
+**Decomposição.** Para objetos complexos o agente chama `plan_parts` e constrói
+por partes. O plano (`obj.plan`) e o foco (`obj.focus`) são persistidos junto com
+o objeto. A barra de partes combina o plano (`planejada`), as peças presentes no
+modelo (`construída`) e as que passaram pelo inspetor (`revisada`). O `focus` de
+`run_geometry` filtra o renderizador antes das capturas, então o laudo e as
+imagens são da parte isolada; a miniatura do objeto continua sendo do conjunto.
+
+**Cuidados de geometria que custaram bugs reais:**
+- `translate/rotate/scale` aceitam array **ou** três números; o formato array é o
+  documentado. Um `triple([x,y,z])` ingênuo transformava `[0,0,16]` em
+  `[NaN,NaN,NaN]` e empilhava tudo na origem.
+- `mirror` precisa inverter o sentido dos triângulos (escala negativa).
+- `roundedBox` é a interseção de três prismas; os prismas são 2 mm mais longos
+  para as tampas não coincidirem (menos faces coplanares).
+- Booleanas de caixas envolventes separadas fazem concatenação direta (evita
+  milhares de divisões do BSP).
+- O diagnóstico `nonManifoldEdges`/`boundaryEdges` é informativo: booleanas
+  produzem junções T que os fatiadores resolvem.
+
+**Privacidade no Estúdio IA.** Só há rede quando o usuário pede uma peça: a chave
+(em `chrome.storage.local`) e o script/laudo vão para `opencode.ai`. As capturas
+do modelo também vão para o modelo de visão escolhido. `host_permissions` limita
+a `opencode.ai` (e localhost para desenvolvimento). Sem IA, a extensão continua
+100% offline.
+

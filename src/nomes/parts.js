@@ -25,8 +25,7 @@
     tabLeft: true,
     tabRight: true,
     columns: 4,
-    spacingX: 60,
-    spacingY: 40,
+    gap: 10,
     distanceSeparate: 40,
     distanceBoth: 45,
     mode: 'juntos',
@@ -608,6 +607,7 @@
       length: length,
       width: layout.width,
       hasTunnel: tabs.length > 0,
+      bbox: bounds(basePositions),
       failures: failures,
       triangles: basePositions.length / 9 + topPositions.length / 9
     };
@@ -727,6 +727,7 @@
       length: length,
       width: layout.width,
       hasTunnel: base.hasTunnel,
+      bbox: bounds(base.positions),
       failures: (base.failures || 0) + (top.failures || 0),
       triangles: base.positions.length / 9 + top.positions.length / 9
     };
@@ -749,8 +750,7 @@
   function buildLayout(pieces, options) {
     var p = params(options);
     var columns = Math.max(1, Math.round(p.columns));
-    var spacingX = Number(p.spacingX);
-    var spacingY = Number(p.spacingY);
+    var gap = Math.max(0, Number(p.gap));
     var distanceSeparate = Number(p.distanceSeparate);
     var distanceBoth = Number(p.distanceBoth);
     var mode = p.mode === 'separados' || p.mode === 'ambos' ? p.mode : 'juntos';
@@ -764,32 +764,87 @@
 
     var base = [];
     var top = [];
+    var placement = [];
 
+    // 1) quanto cada peca ocupa (base + topo) na posicao local
+    var items = [];
     pieces.forEach(function (piece, index) {
       if (!piece) return;
-      var col = index % columns;
-      var row = Math.floor(index / columns);
-      var x = col * spacingX;
-      var y = -row * spacingY;
+      var box = piece.bbox || bounds(piece.base);
+      var y0 = box.min[1];
+      var y1 = box.max[1];
+      if (mode === 'separados') {
+        var spread = solo ? 0 : distanceSeparate / 2;
+        y0 -= spread;
+        y1 += spread;
+      } else if (mode === 'ambos') {
+        y0 -= distanceBoth;
+        y1 += distanceBoth;
+      }
+      items.push({
+        piece: piece,
+        index: index,
+        col: index % columns,
+        row: Math.floor(index / columns),
+        x0: box.min[0],
+        x1: box.max[0],
+        y0: y0,
+        y1: y1
+      });
+    });
+
+    // 2) a celula de cada coluna/linha e o tamanho da maior peca que cai nela
+    var colWidth = [];
+    var rowHeight = [];
+    items.forEach(function (item) {
+      var w = item.x1 - item.x0;
+      var h = item.y1 - item.y0;
+      if (!colWidth[item.col] || w > colWidth[item.col]) colWidth[item.col] = w;
+      if (!rowHeight[item.row] || h > rowHeight[item.row]) rowHeight[item.row] = h;
+    });
+
+    // 3) posicoes acumuladas, com o espacamento entre as celulas
+    var colX = [];
+    var acc = 0;
+    for (var c = 0; c < columns; c++) {
+      colX[c] = acc;
+      acc += (colWidth[c] || 0) + gap;
+    }
+    var rowY = [];
+    acc = 0;
+    var rows = 0;
+    items.forEach(function (item) { if (item.row + 1 > rows) rows = item.row + 1; });
+    for (var r = 0; r < rows; r++) {
+      rowY[r] = -acc;
+      acc += (rowHeight[r] || 0) + gap;
+    }
+
+    // 4) centraliza cada peca na sua celula
+    items.forEach(function (item) {
+      var pw = item.x1 - item.x0;
+      var ph = item.y1 - item.y0;
+      var dx = colX[item.col] + (colWidth[item.col] - pw) / 2 - item.x0;
+      var dy = rowY[item.row] - (rowHeight[item.row] - ph) / 2 - item.y1;
+      var piece = item.piece;
       var height = piece.height;
+      placement.push({ x: dx, y: dy });
 
       if (mode === 'juntos') {
-        if (withBase) translate(piece.base, x, y, 0, base);
-        if (withTop) translate(piece.top, x, y, parts === 'topo' ? 0 : height + STACK_GAP, top);
+        if (withBase) translate(piece.base, dx, dy, 0, base);
+        if (withTop) translate(piece.top, dx, dy, parts === 'topo' ? 0 : height + STACK_GAP, top);
       } else if (mode === 'separados') {
-        // com uma peca so nao ha o que separar: fica centralizada na celula
         var spread = solo ? 0 : distanceSeparate / 2;
-        if (withBase) translate(piece.base, x, y + spread, 0, base);
-        if (withTop) translate(piece.top, x, y - spread, 0, top);
+        if (withBase) translate(piece.base, dx, dy + spread, 0, base);
+        if (withTop) translate(piece.top, dx, dy - spread, 0, top);
       } else {
-        if (withBase) translate(piece.base, x, y + distanceBoth, 0, base);
-        if (withTop) translate(piece.top, x, y + distanceBoth, height + STACK_GAP, top);
-        if (withBase) translate(piece.base, x, y - distanceBoth, 0, base);
-        if (withTop) translate(piece.top, x, y - distanceBoth, 0, top);
+        if (withBase) translate(piece.base, dx, dy + distanceBoth, 0, base);
+        if (withTop) translate(piece.top, dx, dy + distanceBoth, height + STACK_GAP, top);
+        if (withBase) translate(piece.base, dx, dy - distanceBoth, 0, base);
+        if (withTop) translate(piece.top, dx, dy - distanceBoth, 0, top);
       }
     });
 
-    return { base: base, top: top };
+    return { base: base, top: top, placement: placement };
   }
 
   // ---------------------------------------------------------------------------
@@ -844,7 +899,7 @@
   // .scad (mesmo desenho, para abrir no OpenSCAD)
   // ---------------------------------------------------------------------------
 
-  function scadText(names, options, fontName, widths) {
+  function scadText(names, options, fontName, widths, placements) {
     var p = params(options);
     var list = names.map(function (name) {
       return '"' + String(name).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
@@ -855,6 +910,20 @@
     var tabMode = p.holeStyle === 'tab';
     var band = Math.max(0.8, Math.min(2.4, 8 * 0.3));
     var gap = Math.max(0.5, Number(p.minWall) * 0.5);
+    var padHalf = Number(p.holeIn) + Number(p.minWall);
+    var positions = (placements && placements.length === names.length)
+      ? placements
+      : (function () {
+        // sem as posicoes da previa: enfileira com a largura + folga
+        var out = [];
+        var x = 0;
+        names.forEach(function (name, i) {
+          out.push({ x: x, y: 0 });
+          var w = (widths && widths[i]) || (name.length * Number(p.fontSize) * 0.75);
+          x += w + 2 * Number(p.border) + 2 * padHalf + Number(p.gap);
+        });
+        return out;
+      })();
 
     return [
       '// Gerado pelo 3D Mesh Downloader - aba Nomes',
@@ -868,8 +937,7 @@
       '/* [Modo de Exibição] */',
       'Modo_Exibicao = "' + (p.mode === 'separados' || p.mode === 'ambos' ? p.mode : 'juntos') + '"; // [juntos, separados, ambos]',
       '',
-      'Espacamento_X = ' + num(p.spacingX) + ';',
-      'Espacamento_Y = ' + num(p.spacingY) + ';',
+      'Espacamento = ' + num(p.gap) + '; // folga entre as pecas (a grade e calculada pelo tamanho de cada uma)',
       'Colunas       = ' + Math.max(1, Math.round(p.columns)) + ';',
       'Distancia_Y_Separado = ' + num(p.distanceSeparate) + ';',
       'Distancia_Y_Ambos    = ' + num(p.distanceBoth) + ';',
@@ -906,10 +974,11 @@
       '',
       '$fn = 64;',
       '',
+      '// posicoes ja calculadas pelo tamanho de cada peca + Espacamento',
+      'Posicoes = [' + positions.map(function (q) { return '[' + num(q.x) + ', ' + num(q.y) + ']'; }).join(', ') + '];',
+      '',
       'for (i = [0 : len(Nomes) - 1]) {',
-      '    col = i % Colunas;',
-      '    row = floor(i / Colunas);',
-      '    translate([col * Espacamento_X, -row * Espacamento_Y, 0]) {',
+      '    translate([Posicoes[i][0], Posicoes[i][1], 0]) {',
       '        renderChaveiro(Nomes[i], Larguras[i]);',
       '    }',
       '}',
