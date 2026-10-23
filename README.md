@@ -220,11 +220,17 @@ Cada nome vira um chaveiro de **duas peças**, igual ao `nomes.scad`:
 
 | Peça | O que é |
 |---|---|
-| **Base** (rosa) | extrusão da silhueta com uma **ponte** em volta do nome e um **furo cônico** atravessando a peça no sentido do comprimento |
+| **Base** (rosa) | extrusão da silhueta do nome com o **furo** nas pontas |
 | **Topo** (branco) | a mesma silhueta, com o **nome vazado**; colado na base, o nome aparece na cor da base |
 
-O furo é um cone de `r1` na entrada e `r2` na saída, centrado na espessura. A
-espessura da base é calculada para sobrar a parede mínima em volta do furo:
+O furo tem dois modos:
+
+| Furo | Como fica |
+|---|---|
+| **Ponteiras** (padrão) | o contorno são as letras; em cada ponta entra um **disco** com o furo: diâmetro de entrada (4,5 mm) à esquerda e de saída (3,5 mm) à direita |
+| **Túnel** | o contorno é o `hull` do texto (a barra do `.scad`) e o cone atravessa o nome no comprimento, da entrada à saída |
+
+A espessura da base é calculada para sobrar a parede mínima em volta do furo:
 
 ```
 Base_Thickness = 2 × maior_raio + 2 × parede_mínima
@@ -238,11 +244,12 @@ Base_Thickness = 2 × maior_raio + 2 × parede_mínima
 | Modo | montado | `juntos` (topo em cima da base), `separado` (as duas peças na mesa) ou `ambos` |
 | Gerar | base + topo | permite exportar só a base (a "ponteira" com o furo) ou só o topo |
 | Fonte | Chewy | a fonte embutida (Apache 2.0) ou qualquer `.ttf` carregado por você |
-| Tamanho / Borda | 8 mm / 2 mm | altura do texto e o offset em volta das letras |
-| Furo entrada / saída | 4,5 / 3,5 mm | raios do cone (entrada à esquerda, saída à direita) |
-| Parede mínima | 1,6 mm | distância entre o furo e a superfície |
+| Tamanho / Borda | 12 mm / 2 mm | altura do texto (mínimo 12 mm) e o offset em volta das letras |
+| Furo | ponteiras | `ponteiras` (disco em cada ponta) ou `túnel` (cone no comprimento) |
+| Furo entrada / saída | 4,5 / 3,5 mm | diâmetro do disco da esquerda e da direita (ou os raios do cone, no modo túnel) |
+| Parede mínima | 1,6 mm | parede em volta do furo |
 | Topo | 1,5 mm | espessura da peça branca |
-| Colunas / Espaço X / Y | 4 / 220 / 160 mm | grade da mesa, igual ao `for` do `.scad` |
+| Colunas / Espaço X / Y | 4 / 60 / 40 mm | grade da mesa |
 | Dist. separado / ambos | 40 / 45 mm | afastamento entre as peças |
 | Qualidade | 0,15 mm | passo da malha (0,30 rápida … 0,07 muito alta) |
 
@@ -261,13 +268,17 @@ As cores da prévia também são configuráveis.
 ### Diferenças em relação ao `nomes.scad`
 
 O gerador usa a **largura real do texto** (medida nos contornos do glifo) em vez
-da estimativa `len(nome) × tamanho × 0,75` do `.scad`. A ponte acompanha essa
-largura, então as pontas do cone terminam sempre dentro do material e a parede
-mínima é garantida nas duas extremidades.
+da estimativa `len(nome) × tamanho × 0,75` do `.scad`, então o furo cai sempre
+dentro do material e o texto pode ter qualquer largura.
 
-O `.scad` original ainda recorta a ponte com `hull()` do texto; isso afinava as
-pontas até o furo sair pela lateral. O gerador mantém as pontas retas — a
-silhueta do nome continua no topo vazado, que é onde ela aparece.
+No modo **túnel**, o contorno é o mesmo do `.scad` (texto ∪ ponte ∩ `hull`),
+acrescido de uma **guarda** de ~1 mm junto às duas pontas: ela deixa a ponta reta
+e mantém parede dos dois lados do cone. Sem ela o cone escapa pela lateral das
+letras perto das pontas (é o que acontece no `.scad`, cuja parede lateral chega a
+ficar com menos de 1 mm).
+
+No modo **ponteiras**, o contorno são as letras e cada ponta recebe um disco com
+o furo do seu lado — é o que fecha a ponta direita no diâmetro menor.
 
 ---
 

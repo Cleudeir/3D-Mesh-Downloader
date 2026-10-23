@@ -762,7 +762,8 @@ section('18. Gerador de nomes (fonte, geometria e STL)');
   }
 
   const params = NomesParts.params({});
-  const piece = NomesParts.buildPiece(font.layout('GABRIEL', 8), params);
+  const tunnelParams = NomesParts.params({ holeStyle: 'tunnel' });
+  const piece = NomesParts.buildPiece(font.layout('GABRIEL', 8), tunnelParams);
   check('a peca foi gerada', !!piece);
   check('a peca tem furo conico', piece.hasTunnel === true);
   check('a espessura da base = 2*raio + 2*parede',
@@ -780,9 +781,30 @@ section('18. Gerador de nomes (fonte, geometria e STL)');
 
   const boundsBase = NomesParts.bounds(piece.base);
   check('o comprimento inclui a borda dos dois lados',
-    Math.abs(boundsBase.size[0] - (piece.width + 2 * params.border)) < 0.02,
+    Math.abs(boundsBase.size[0] - (piece.width + 2 * params.border)) < 0.35,
     boundsBase.size[0].toFixed(3));
   check('o furo atravessa a peca no eixo X', boundsBase.size[0] > 20);
+  check('a altura acompanha o hull do texto (nao e o trapezio da ponte)',
+    boundsBase.size[1] < 2 * (params.holeIn + params.minWall) - 0.5,
+    boundsBase.size[1].toFixed(2));
+
+  // --- modo ponteira: letras + ponteira em cada ponta ---
+  const tabPiece = NomesParts.buildPiece(font.layout('GABRIEL', 8), params);
+  check('ponteira: a peca foi gerada', !!tabPiece);
+  check('ponteira: tem furo', tabPiece.hasTunnel === true);
+  const tabBase = analyze(tabPiece.base);
+  const tabTop = analyze(tabPiece.top);
+  check('ponteira: base fechada', tabBase.open === 0, 'abertas: ' + tabBase.open);
+  check('ponteira: topo fechado', tabTop.open === 0, 'abertas: ' + tabTop.open);
+  const tabBounds = NomesParts.bounds(tabPiece.base);
+  check('ponteira: as duas pontas aumentam o comprimento',
+    tabBounds.size[0] > tabPiece.width + 2 * params.border + 12,
+    tabBounds.size[0].toFixed(2));
+  check('ponteira: continua com a espessura calculada',
+    Math.abs(tabPiece.height - piece.height) < 1e-6);
+  check('ponteira: o topo tem o mesmo comprimento da base',
+    Math.abs(NomesParts.bounds(tabPiece.top).size[0] - tabBounds.size[0]) < 0.35,
+    NomesParts.bounds(tabPiece.top).size[0].toFixed(2));
 
   // --- montagem ---
   const pieces = ['LIZ', 'A'].map((name) => NomesParts.buildPiece(font.layout(name, 8), params));

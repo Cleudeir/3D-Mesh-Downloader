@@ -14,12 +14,15 @@
   var TUNNEL_SEGMENTS = 64;
 
   var DEFAULTS = {
-    fontSize: 8,
+    fontSize: 12,
     border: 2,
     holeIn: 4.5,
     holeOut: 3.5,
     minWall: 1.6,
     topThickness: 1.5,
+    holeStyle: 'tab',
+    tabLeft: true,
+    tabRight: true,
     columns: 4,
     spacingX: 60,
     spacingY: 40,
@@ -89,14 +92,15 @@
   }
 
   /** Triangula um poligono validando a area (furos podem falhar em casos raros). */
-  function triangulateChecked(polygon) {
+  function triangulateChecked(polygon, extraHoles) {
+    var holes = polygon.holes.concat(extraHoles || []);
     var expected = Math.abs(Field.area(polygon.outer)) -
-      polygon.holes.reduce(function (sum, hole) { return sum + Math.abs(Field.area(hole)); }, 0);
-    var result = Field.triangulate(polygon.outer, polygon.holes);
+      holes.reduce(function (sum, hole) { return sum + Math.abs(Field.area(hole)); }, 0);
+    var result = Field.triangulate(polygon.outer, holes);
     var got = Field.triangulationArea(result.triangles);
     if (!isFinite(got) || Math.abs(expected - got) > Math.max(0.02, expected * 0.001)) {
       // segunda tentativa: ordem inversa dos furos (fendas podem se atrapalhar)
-      result = Field.triangulate(polygon.outer, polygon.holes.slice().reverse());
+      result = Field.triangulate(polygon.outer, holes.slice().reverse());
       got = Field.triangulationArea(result.triangles);
       if (!isFinite(got) || Math.abs(expected - got) > Math.max(0.02, expected * 0.001)) {
         return { points: [], triangles: [], failed: true, expected: expected, got: got };
@@ -238,6 +242,40 @@
     return unique;
   }
 
+  /** Todos os pontos dos contornos (para o hull). */
+  function collectPoints(contours) {
+    var points = [];
+    (contours || []).forEach(function (ring) {
+      if (!ring) return;
+      for (var i = 0; i < ring.length; i++) points.push({ x: ring[i].x, y: ring[i].y });
+    });
+    return points;
+  }
+
+  /** Fecho convexo (Andrew, monotone chain) no sentido anti-horario. */
+  function convexHull(points) {
+    if (!points || points.length < 3) return (points || []).slice();
+    var sorted = points.slice().sort(function (a, b) {
+      return a.x - b.x || a.y - b.y;
+    });
+    var cross = function (o, a, b) {
+      return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    };
+    var lower = [];
+    for (var i = 0; i < sorted.length; i++) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], sorted[i]) <= 0) lower.pop();
+      lower.push(sorted[i]);
+    }
+    var upper = [];
+    for (var j = sorted.length - 1; j >= 0; j--) {
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], sorted[j]) <= 0) upper.pop();
+      upper.push(sorted[j]);
+    }
+    lower.pop();
+    upper.pop();
+    return lower.concat(upper);
+  }
+
   function radiusAt(x, start, span, r1, r2) {
     var t = (x - start) / span;
     if (t < 0) t = 0;
@@ -355,6 +393,178 @@
   }
 
   // ---------------------------------------------------------------------------
+  // modo ponteira: o contorno sao as letras e cada ponta tem uma ponteira
+  // redonda com furo (a esquerda no diametro de entrada, a direita no de saida)
+  // ---------------------------------------------------------------------------
+
+  var HOLE_SEGMENTS = 64;
+
+  function circleRingAt(cx, cy, radius, segments) {
+    var ring = [];
+    for (var i = 0; i < segments; i++) {
+      var angle = (i / segments) * Math.PI * 2;
+      ring.push({ x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius });
+    }
+    return ring;
+  }
+
+  /** Tampas do poligono com os furos dos circulos que caem dentro dele. */
+  function addCapWithHoles(positions, polygon, z, holes, flip) {
+    var mine = holes
+      .filter(function (hole) { return Field.pointInPolygon(hole.x, hole.y, polygon.outer); })
+      .map(function (hole) { return hole.ring; });
+    var mesh = triangulateChecked(polygon, mine);
+    if (mesh.failed) return false;
+    mesh.triangles.forEach(function (a) {
+      if (flip) tri(positions, [a[0].x, a[0].y, z], [a[2].x, a[2].y, z], [a[1].x, a[1].y, z]);
+      else tri(positions, [a[0].x, a[0].y, z], [a[1].x, a[1].y, z], [a[2].x, a[2].y, z]);
+    });
+    return true;
+  }
+
+  function addVerticalWalls(positions, polygon, z0, z1) {
+    [polygon.outer].concat(polygon.holes).forEach(function (ring) {
+      for (var i = 0; i < ring.length; i++) {
+        var a = ring[i];
+        var b = ring[(i + 1) % ring.length];
+        tri(positions, [a.x, a.y, z0], [b.x, b.y, z0], [b.x, b.y, z1]);
+        tri(positions, [a.x, a.y, z0], [b.x, b.y, z1], [a.x, a.y, z1]);
+      }
+    });
+  }
+
+  /** Parede do furo vertical: anel em z0 e em z1 (normal para dentro do furo). */
+  function addVerticalHole(positions, cx, cy, z0, rBase, z1, rTop, segments) {
+    var base = [];
+    var top = [];
+    for (var i = 0; i < segments; i++) {
+      var angle = (i / segments) * Math.PI * 2;
+      var cos = Math.cos(angle);
+      var sin = Math.sin(angle);
+      base.push([cx + cos * rBase, cy + sin * rBase, z0]);
+      top.push([cx + cos * rTop, cy + sin * rTop, z1]);
+    }
+    for (var k = 0; k < segments; k++) {
+      var next = (k + 1) % segments;
+      tri(positions, top[k], base[next], base[k]);
+      tri(positions, top[k], top[next], base[next]);
+    }
+  }
+
+  function buildTabPiece(layout, p) {
+    var h = Math.max(0.06, Number(p.quality) || DEFAULTS.quality);
+    var border = Math.max(0, Number(p.border));
+    var r1 = Math.max(0.4, Number(p.holeIn));
+    var r2 = Math.max(0.4, Number(p.holeOut));
+    var wall = Math.max(0, Number(p.minWall));
+    var thickness = Math.max(0.2, Number(p.topThickness));
+    var height = 2 * Math.max(r1, r2) + 2 * wall;
+    var length = layout.width + 2 * border;
+    if (layout.width <= 0) return null;
+
+    var bandHalf = Math.max(0.8, Math.min(2.4, layout.height * 0.3));
+    var gap = Math.max(0.5, wall * 0.5);
+    var tabs = [];
+    if (p.tabLeft !== false) {
+      tabs.push({ x: -length / 2 - r1 - gap, side: 'left', radius: r1 + wall, hole: r1 });
+    }
+    if (p.tabRight !== false) {
+      tabs.push({ x: length / 2 + r2 + gap, side: 'right', radius: r2 + wall, hole: r2 });
+    }
+
+    var bandFrom = -length / 2;
+    var bandTo = length / 2;
+    tabs.forEach(function (tab) {
+      if (tab.side === 'left') bandFrom = tab.x;
+      else bandTo = tab.x;
+    });
+
+    var extraPoints = [
+      { x: -length / 2, y: -bandHalf },
+      { x: length / 2, y: bandHalf }
+    ];
+    tabs.forEach(function (tab) {
+      extraPoints.push({ x: tab.x - tab.radius, y: -tab.radius });
+      extraPoints.push({ x: tab.x + tab.radius, y: tab.radius });
+    });
+
+    var field = Field.build(layout.contours, {
+      h: h,
+      maxDist: border + 2 * h,
+      extraPoints: extraPoints
+    });
+    if (field.empty) return null;
+
+    var band = [
+      { x: bandFrom, y: -bandHalf },
+      { x: bandTo, y: -bandHalf },
+      { x: bandTo, y: bandHalf },
+      { x: bandFrom, y: bandHalf }
+    ];
+
+    var values = new Float32Array(field.values.length);
+    var topValues = new Float32Array(field.values.length);
+    for (var j = 0; j <= field.ny; j++) {
+      var y = field.y0 + j * h;
+      for (var i = 0; i <= field.nx; i++) {
+        var index = j * field.stride + i;
+        var x = field.x0 + i * h;
+        var d = field.values[index] - border;
+        var bandValue = Field.sdfConvex(band, x, y);
+        if (bandValue < d) d = bandValue;
+        for (var t = 0; t < tabs.length; t++) {
+          var dx = x - tabs[t].x;
+          var tabValue = Math.sqrt(dx * dx + y * y) - tabs[t].radius;
+          if (tabValue < d) d = tabValue;
+        }
+        values[index] = d;
+        topValues[index] = Math.max(d, -field.values[index]);
+      }
+    }
+
+    var basePolygons = polygonsOf(field, values);
+    var topPolygons = polygonsOf(field, topValues);
+    if (!basePolygons.length) return null;
+
+    var holes = tabs.map(function (tab) {
+      return { x: tab.x, y: 0, ring: circleRingAt(tab.x, 0, tab.hole, HOLE_SEGMENTS) };
+    });
+
+    var basePositions = [];
+    var topPositions = [];
+    var failures = 0;
+
+    basePolygons.forEach(function (polygon) {
+      if (!addCapWithHoles(basePositions, polygon, height, holes, false)) failures++;
+      if (!addCapWithHoles(basePositions, polygon, 0, holes, true)) failures++;
+      addVerticalWalls(basePositions, polygon, 0, height);
+    });
+    tabs.forEach(function (tab) {
+      addVerticalHole(basePositions, tab.x, 0, 0, tab.hole, height, tab.hole, HOLE_SEGMENTS);
+    });
+
+    topPolygons.forEach(function (polygon) {
+      if (!addCapWithHoles(topPositions, polygon, thickness, holes, false)) failures++;
+      if (!addCapWithHoles(topPositions, polygon, 0, holes, true)) failures++;
+      addVerticalWalls(topPositions, polygon, 0, thickness);
+    });
+    tabs.forEach(function (tab) {
+      addVerticalHole(topPositions, tab.x, 0, 0, tab.hole, thickness, tab.hole, HOLE_SEGMENTS);
+    });
+
+    return {
+      base: basePositions,
+      top: topPositions,
+      height: height,
+      length: length,
+      width: layout.width,
+      hasTunnel: tabs.length > 0,
+      failures: failures,
+      triangles: basePositions.length / 9 + topPositions.length / 9
+    };
+  }
+
+  // ---------------------------------------------------------------------------
   // uma peca completa (base + topo)
   // ---------------------------------------------------------------------------
 
@@ -364,6 +574,11 @@
    */
   function buildPiece(layout, options) {
     var p = params(options);
+    if (p.holeStyle === 'tab') return buildTabPiece(layout, p);
+    return buildTunnelPiece(layout, p);
+  }
+
+  function buildTunnelPiece(layout, p) {
     var h = Math.max(0.06, Number(p.quality) || DEFAULTS.quality);
     var border = Math.max(0, Number(p.border));
     var r1 = Math.max(0.5, Number(p.holeIn));
@@ -385,6 +600,15 @@
       { x: -length / 2, y: halfLeft }
     ];
 
+    // O .scad une o texto com a ponte recortada pelo hull do texto, ou seja o
+    // contorno final e o hull (a barra de pontas arredondadas). A ponte sozinha
+    // daria um trapezio reto, sem acompanhar as letras.
+    var hullPoints = convexHull(collectPoints(layout.contours));
+    // A guarda do tunel garante parede em volta do furo e deixa a ponta reta,
+    // senao o cone abriria pela lateral das letras.
+    var guardWall = Math.max(0.7, Math.min(1.2, wall * 0.6));
+    var halfSpan = length / 2;
+
     var textField = Field.build(layout.contours, {
       h: h,
       maxDist: maxDist,
@@ -401,10 +625,19 @@
       var y = textField.y0 + j * h;
       for (var i = 0; i <= textField.nx; i++) {
         var index = j * stride + i;
+        var x = textField.x0 + i * h;
         var text = textField.values[index];
         var base = text - border;
-        var bridgeValue = Field.sdfConvex(bridge, textField.x0 + i * h, y);
+        // hull do texto recortado pela ponte = contorno do .scad
+        var hullValue = Field.sdfConvex(hullPoints, x, y) - border;
+        var bridgeValue = Field.sdfConvex(bridge, x, y);
+        if (hullValue > bridgeValue) bridgeValue = hullValue;
         if (bridgeValue < base) base = bridgeValue;
+        // guarda do tunel: parede em volta do furo e ponta reta
+        if (x >= -halfSpan && x <= halfSpan) {
+          var guard = Math.abs(y) - (radiusAt(x, -halfSpan, length, r1, r2) + guardWall);
+          if (guard < base) base = guard;
+        }
         baseValues[index] = base;
         // topo = base menos o texto
         topValues[index] = Math.max(base, -text);
@@ -559,6 +792,9 @@
     var measured = (widths && widths.length === names.length)
       ? widths.map(num).join(', ')
       : null;
+    var tabMode = p.holeStyle === 'tab';
+    var band = Math.max(0.8, Math.min(2.4, 8 * 0.3));
+    var gap = Math.max(0.5, Number(p.minWall) * 0.5);
 
     return [
       '// Gerado pelo 3D Mesh Downloader - aba Nomes',
@@ -585,20 +821,24 @@
       '/* [Dimensões e Geometria] */',
       'Border_Size = ' + num(p.border) + ';',
       '',
-      '/* [Configurações do Furo Cônico e Paredes] */',
+      '/* [Furo e Ponteiras] */',
+      'Modo_Furo = "' + (tabMode ? 'ponteira' : 'tunel') + '"; // [ponteira, tunel]',
       'Hole_Radius_Entrada = ' + num(p.holeIn) + ';',
       'Hole_Radius_Saida   = ' + num(p.holeOut) + ';',
       'Min_Wall_Thickness  = ' + num(p.minWall) + ';',
+      'Afastamento_Ponteira = ' + num(gap) + ';',
+      'Meia_Ponte = ' + num(band) + '; // metade da faixa fina que liga as letras',
       'Base_Thickness = (max(Hole_Radius_Entrada, Hole_Radius_Saida) * 2) + (2 * Min_Wall_Thickness);',
       'Top_Thickness  = ' + num(p.topThickness) + ';',
       '',
       'Color_Base_Rosa   = "#FFC0CB";',
       'Color_Topo_Branco = "#FFFFFF";',
       '',
-      '// Este arquivo usa a largura real do texto (medida no STL) no lugar da',
-      '// estimativa por numero de caracteres, entao as pontas do cone ficam',
-      '// sempre dentro do material.',
-      'function get_text_width(nome_texto, largura) = largura + (Border_Size * 2);',
+      '// A largura vem medida nos contornos da fonte, nao da estimativa por',
+      '// numero de caracteres: as pontas do furo caem sempre dentro do material.',
+      'function comprimentoDe(largura) = largura + (Border_Size * 2);',
+      'function xPonteiraEsquerda(comprimento) = -(comprimento / 2) - Hole_Radius_Entrada - Afastamento_Ponteira;',
+      'function xPonteiraDireita(comprimento)  =  (comprimento / 2) + Hole_Radius_Saida  + Afastamento_Ponteira;',
       '',
       '$fn = 64;',
       '',
@@ -624,7 +864,7 @@
       'module renderMontado(nome_texto, largura, pos) {',
       '    translate(pos) {',
       '        color(Color_Base_Rosa) generateBasePeca(nome_texto, largura);',
-      '        translate([0, 0, Base_Thickness])',
+      '        translate([0, 0, Base_Thickness + 0.01])',
       '            color(Color_Topo_Branco) generateTopoPeca(nome_texto, largura);',
       '    }',
       '}',
@@ -643,28 +883,53 @@
       '}',
       '',
       'module 2dPonteETexto(nome_texto, largura) {',
-      '    comprimento_real = get_text_width(nome_texto, largura);',
-      '    largura_esq = (Hole_Radius_Entrada * 2) + (2 * Min_Wall_Thickness);',
-      '    largura_dir = (Hole_Radius_Saida * 2) + (2 * Min_Wall_Thickness);',
+      '    comprimento = comprimentoDe(largura);',
+      '    half_left  = Hole_Radius_Entrada + Min_Wall_Thickness;',
+      '    half_right = Hole_Radius_Saida + Min_Wall_Thickness;',
       '',
       '    union() {',
       '        offset(r = Border_Size) { textProfile(nome_texto); }',
-      '        polygon(points = [',
-      '            [-comprimento_real/2,  largura_esq/2],',
-      '            [ comprimento_real/2,  largura_dir/2],',
-      '            [ comprimento_real/2, -largura_dir/2],',
-      '            [-comprimento_real/2, -largura_esq/2]',
-      '        ]);',
+      '        if (Modo_Furo == "tunel") {',
+      '            // ponte recortada pelo hull do texto (como no nomes.scad)',
+      '            intersection() {',
+      '                polygon(points = [',
+      '                    [-comprimento/2,  half_left],',
+      '                    [ comprimento/2,  half_right],',
+      '                    [ comprimento/2, -half_right],',
+      '                    [-comprimento/2, -half_left]',
+      '                ]);',
+      '                hull() { offset(r = Border_Size) { textProfile(nome_texto); } }',
+      '            }',
+      '        } else {',
+      '            // faixa fina ligando as letras + ponteira redonda em cada ponta',
+      '            square([comprimento, 2 * Meia_Ponte], center = true);',
+      '            translate([xPonteiraEsquerda(comprimento), 0])',
+      '                circle(r = Hole_Radius_Entrada + Min_Wall_Thickness);',
+      '            translate([xPonteiraDireita(comprimento), 0])',
+      '                circle(r = Hole_Radius_Saida + Min_Wall_Thickness);',
+      '        }',
       '    }',
       '}',
       '',
+      'module furoPonteiras(largura, altura) {',
+      '    comprimento = comprimentoDe(largura);',
+      '    translate([xPonteiraEsquerda(comprimento), 0, -1])',
+      '        cylinder(h = altura + 2, r = Hole_Radius_Entrada);',
+      '    translate([xPonteiraDireita(comprimento), 0, -1])',
+      '        cylinder(h = altura + 2, r = Hole_Radius_Saida);',
+      '}',
+      '',
       'module generateBasePeca(nome_texto, largura) {',
-      '    comprimento_real = get_text_width(nome_texto, largura);',
+      '    comprimento = comprimentoDe(largura);',
       '    difference() {',
       '        linear_extrude(height = Base_Thickness) { 2dPonteETexto(nome_texto, largura); }',
-      '        translate([-comprimento_real/2, 0, Base_Thickness / 2])',
-      '            rotate([0, 90, 0])',
-      '                cylinder(h = comprimento_real, r1 = Hole_Radius_Entrada, r2 = Hole_Radius_Saida);',
+      '        if (Modo_Furo == "tunel") {',
+      '            translate([-comprimento/2, 0, Base_Thickness / 2])',
+      '                rotate([0, 90, 0])',
+      '                    cylinder(h = comprimento, r1 = Hole_Radius_Entrada, r2 = Hole_Radius_Saida);',
+      '        } else {',
+      '            furoPonteiras(largura, Base_Thickness);',
+      '        }',
       '    }',
       '}',
       '',
@@ -673,6 +938,9 @@
       '        linear_extrude(height = Top_Thickness) { 2dPonteETexto(nome_texto, largura); }',
       '        translate([0, 0, -1])',
       '            linear_extrude(height = Top_Thickness + 2) { textProfile(nome_texto); }',
+      '        if (Modo_Furo == "ponteira") {',
+      '            furoPonteiras(largura, Top_Thickness);',
+      '        }',
       '    }',
       '}',
       ''

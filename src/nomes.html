@@ -332,13 +332,20 @@
         </label>
         <input type="file" id="fontFile" accept=".ttf,font/ttf" hidden>
         <div class="grid2">
-          <label class="field"><span>Tamanho (mm)</span><input type="number" id="fontSize" value="8" min="2" max="120" step="0.5"></label>
+          <label class="field"><span>Tamanho (mm)</span><input type="number" id="fontSize" value="12" min="12" max="200" step="0.5"></label>
           <label class="field"><span>Borda (mm)</span><input type="number" id="border" value="2" min="0" max="20" step="0.1"></label>
         </div>
         <div class="grid2">
           <label class="field"><span>Furo entrada (mm)</span><input type="number" id="holeIn" value="4.5" min="0.5" max="40" step="0.1"></label>
           <label class="field"><span>Furo saída (mm)</span><input type="number" id="holeOut" value="3.5" min="0.5" max="40" step="0.1"></label>
         </div>
+        <label class="field">
+          <span>Furo</span>
+          <select id="holeStyle">
+            <option value="tab" selected>ponteiras nas pontas (entrada esq. / saída dir.)</option>
+            <option value="tunnel">túnel no comprimento (como o .scad)</option>
+          </select>
+        </label>
         <div class="grid2">
           <label class="field"><span>Parede mín. (mm)</span><input type="number" id="minWall" value="1.6" min="0.4" max="10" step="0.1"></label>
           <label class="field"><span>Topo (mm)</span><input type="number" id="topThickness" value="1.5" min="0.4" max="10" step="0.1"></label>

@@ -24,6 +24,7 @@
     border: document.getElementById('border'),
     holeIn: document.getElementById('holeIn'),
     holeOut: document.getElementById('holeOut'),
+    holeStyle: document.getElementById('holeStyle'),
     minWall: document.getElementById('minWall'),
     topThickness: document.getElementById('topThickness'),
     quality: document.getElementById('quality'),
@@ -58,7 +59,7 @@
   // ---------------------------------------------------------------------------
 
   var FIELDS = ['names', 'mode', 'pieces', 'columns', 'spacingX', 'spacingY',
-    'distanceSeparate', 'distanceBoth', 'fontSize', 'border', 'holeIn', 'holeOut',
+    'distanceSeparate', 'distanceBoth', 'fontSize', 'border', 'holeIn', 'holeOut', 'holeStyle',
     'minWall', 'topThickness', 'quality', 'baseColor', 'topColor'];
 
   function saveForm() {
@@ -88,10 +89,11 @@
 
   function readParams() {
     return NomesParts.params({
-      fontSize: numberValue(els.fontSize, 8, 2, 200),
+      fontSize: numberValue(els.fontSize, 12, 12, 200),
       border: numberValue(els.border, 2, 0, 40),
       holeIn: numberValue(els.holeIn, 4.5, 0.5, 60),
       holeOut: numberValue(els.holeOut, 3.5, 0.5, 60),
+      holeStyle: els.holeStyle.value,
       minWall: numberValue(els.minWall, 1.6, 0.2, 20),
       topThickness: numberValue(els.topThickness, 1.5, 0.3, 20),
       columns: Math.round(numberValue(els.columns, 4, 1, 40)),
@@ -145,7 +147,7 @@
   // ---------------------------------------------------------------------------
 
   function pieceKey(name, params) {
-    return [name, params.fontSize, params.border, params.holeIn, params.holeOut,
+    return [name, params.fontSize, params.border, params.holeIn, params.holeOut, params.holeStyle,
       params.minWall, params.topThickness, params.quality].join('|');
   }
 
