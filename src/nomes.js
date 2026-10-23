@@ -40,7 +40,9 @@
     legendTop: document.getElementById('legendTop')
   };
 
-  var STORAGE_KEY = 'nomesForm';
+  // v2: muda o furo padrao (tunel) e o tamanho minimo do texto (12 mm);
+  // a chave nova descarta formularios salvos com os padroes antigos
+  var STORAGE_KEY = 'nomesForm2';
   var DEBOUNCE_MS = 260;
   var MAX_NAMES = 120;
 
