@@ -1,9 +1,17 @@
 {
   "manifest_version": 3,
   "name": "3D Mesh Downloader",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "description": "Exporta malhas Three.js da pagina para OBJ (com normais, UVs, materiais e transformacoes de mundo).",
   "permissions": ["activeTab", "storage"],
+  "host_permissions": [
+    "https://opencode.ai/*",
+    "https://commons.wikimedia.org/*",
+    "https://upload.wikimedia.org/*",
+    "https://*.wikimedia.org/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
@@ -22,6 +30,12 @@
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
+  },
+  "sandbox": {
+    "pages": ["ia/sandbox.html", "ia/sandbox-v2.html"]
+  },
+  "content_security_policy": {
+    "sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; child-src 'self' blob:; worker-src 'self' blob:;"
   },
   "content_scripts": [
     {

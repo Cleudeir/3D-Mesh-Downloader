@@ -110,16 +110,16 @@
       position: relative;
       display: flex;
       align-items: center;
-      gap: 5px;
+      gap: 3px;
       flex: 1;
       min-width: 0;
-      padding: 7px 5px 8px;
+      padding: 7px 3px 8px;
       border: 0;
       border-radius: 9px 9px 0 0;
       background: var(--strip);
       color: var(--muted);
       font: inherit;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       cursor: pointer;
       transition: background .12s ease, color .12s ease;
@@ -140,8 +140,8 @@
     .tab[aria-selected="true"]::before { left: -11px; border-top-left-radius: 11px; }
     .tab[aria-selected="true"]::after { right: -11px; border-top-right-radius: 11px; }
     .tico {
-      width: 13px;
-      height: 13px;
+      width: 12px;
+      height: 12px;
       flex: none;
       color: var(--accent);
       opacity: .75;
@@ -157,8 +157,8 @@
     .tbadge {
       margin-left: auto;
       flex: none;
-      min-width: 16px;
-      padding: 0 4px;
+      min-width: 14px;
+      padding: 0 3px;
       border-radius: 8px;
       background: var(--accent);
       color: #fff;
@@ -480,7 +480,7 @@
       <path d="M12 17.6v2.9"/>
       <path d="M9.6 18.9 12 21.3 14.4 18.9"/>
     </svg>
-    <h1>3D Mesh Downloader <span id="version">v2.4.0</span></h1>
+    <h1>3D Mesh Downloader <span id="version">v2.5.0</span></h1>
     <button type="button" id="reloadExt" class="icon-btn" title="Atualizar a extensao (rele do disco) e recarregar a pagina">&#8635;</button>
   </header>
 
@@ -533,6 +533,16 @@
         <path d="M15.4 8.7v6.6"/>
       </svg>
       <span class="tlabel">Nomes</span>
+    </button>
+
+    <button type="button" class="tab" id="tab-ia" role="tab" data-tab="ia"
+            aria-selected="false" aria-controls="panel-ia" tabindex="-1"
+            title="Estúdio de geometria com IA (abre em uma aba inteira)">
+      <svg class="tico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+        <path d="M12 3.2 13.8 8l4.8 1.8-4.8 1.8L12 16.4l-1.8-4.8L5.4 9.8 10.2 8Z"/>
+        <path d="M18 15.4 18.8 17l1.6.8-1.6.8-.8 1.6-.8-1.6-1.6-.8 1.6-.8Z"/>
+      </svg>
+      <span class="tlabel">IA</span>
     </button>
   </nav>
 
@@ -689,6 +699,28 @@
       <p class="hint" style="margin:9px 0 0;">
         O gerador abre em uma <b>aba inteira</b> do navegador: a prévia 3D e a exportação
         STL não cabem no popup.
+      </p>
+    </section>
+
+    <!-- ---------- aba: IA ---------- -->
+    <section class="panel" id="panel-ia" role="tabpanel" aria-labelledby="tab-ia" hidden>
+      <div class="exclude-head">
+        <span>Estúdio de geometria IA</span>
+      </div>
+      <p class="hint" style="margin:6px 0 9px;">
+        Um agente especializado em geometria: você descreve a peça e ele escreve o
+        <b>script paramétrico</b>, executa, tira capturas em vários ângulos
+        (perspectiva, topo, baixo, frente e lados) e corrige até ficar certo.
+        Os objetos ficam salvos com o script que os gerou — a memória do estúdio.
+      </p>
+
+      <div class="actions">
+        <button class="primary" id="openIa">Abrir estúdio IA</button>
+      </div>
+
+      <p class="hint" style="margin:9px 0 0;">
+        Usa a API da <b>OpenCode Go</b> (compatível com OpenAI). Cole sua chave em
+        <b>Ajustes</b> dentro do estúdio. Modelos marcados com 👁 enxergam as capturas.
       </p>
     </section>
   </div>

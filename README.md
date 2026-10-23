@@ -327,6 +327,23 @@ plano, o que já foi construído e revisado; clicar em uma peça isola na hora. 
 final, o agente roda sem `focus` para conferir o conjunto. O STL sempre junta
 todas as partes.
 
+### Benchmark de modelos
+
+O botão de gráfico no topo abre o **benchmark**. Ele usa a **mesma imagem de
+referência**, o mesmo laudo e o mesmo pedido para todos os modelos principais,
+com o inspetor de visão como juiz. Cada modelo recebe só o laudo textual (nunca
+a imagem) e devolve um único script. O juiz compara as capturas com a referência
+e dá notas de 0 a 10 para silhueta, proporções, detalhes, conexão/printabilidade
+e semelhança geral; o estúdio mostra também dimensões, volume, triângulos, peças,
+peças soltas, arestas não-manifold e tempo de execução.
+
+Há atalhos **Flash** (modelos mais baratos), **médios** (faixa intermediária) e
+**caros** (topo de linha). Rodar de novo com apenas alguns modelos **atualiza só
+os selecionados** e preserva os outros resultados. Cada resultado vira um objeto
+na biblioteca e pode ser aberto no botão **Abrir**. Você também dá sua nota (1 a
+10) e um comentário; o ranking passa a usar a sua nota quando existe. Referência
+e resultados ficam salvos em `chrome.storage.local`.
+
 ### Kernel de geometria
 
 Tudo em milímetros, Z para cima, com booleanas BSP e malhas fechadas:
@@ -344,7 +361,8 @@ Tudo em milímetros, Z para cima, com booleanas BSP e malhas fechadas:
 O agente é instruído a compor objetos complexos (lathe + loft + sweep + booleanas),
 não apenas caixas e cilindros. O script roda em um **sandbox** declarado no
 manifest, dentro de um **blob worker**: sem DOM, sem `chrome.*` e sem acesso à
-chave da API, com timeout de 25 s e possibilidade de encerrar o worker.
+chave da API, com timeout de 25 s no agente (60 s ao abrir objetos salvos e no
+benchmark) e possibilidade de encerrar o worker.
 
 ### Chave e privacidade
 

@@ -48,6 +48,7 @@
     nomesQuick: document.getElementById('nomesQuick'),
     openNomes: document.getElementById('openNomes'),
     openNomesWithList: document.getElementById('openNomesWithList'),
+    openIa: document.getElementById('openIa'),
     reloadExt: document.getElementById('reloadExt'),
     staleBar: document.getElementById('staleBar'),
     staleText: document.getElementById('staleText'),
@@ -1088,6 +1089,16 @@
   }
   if (els.openNomesWithList) {
     els.openNomesWithList.addEventListener('click', function () { openNomesPage(true); });
+  }
+  if (els.openIa) {
+    els.openIa.addEventListener('click', function () {
+      var url = chrome.runtime.getURL('ia.html');
+      try {
+        chrome.tabs.create({ url: url });
+      } catch (e) {
+        window.open(url, '_blank');
+      }
+    });
   }
   if (els.nomesQuick) {
     els.nomesQuick.addEventListener('input', function () {

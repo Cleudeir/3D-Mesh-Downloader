@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>sandbox de geometria v2</title>
+</head>
+<body>
+  <script>
+    (function () {
+      var version = new URLSearchParams(location.search).get('v') || String(Date.now());
+      var script = document.createElement('script');
+      script.src = 'sandbox-v2.js?v=' + encodeURIComponent(version);
+      document.body.appendChild(script);
+    })();
+  </script>
+</body>
+</html>
