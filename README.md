@@ -227,8 +227,8 @@ O furo tem dois modos:
 
 | Furo | Como fica |
 |---|---|
-| **Ponteiras** (padrão) | o contorno são as letras; em cada ponta entra um **disco** com o furo: diâmetro de entrada (4,5 mm) à esquerda e de saída (3,5 mm) à direita |
-| **Túnel** | o contorno é o `hull` do texto (a barra do `.scad`) e o cone atravessa o nome no comprimento, da entrada à saída |
+| **Túnel** (padrão) | um único furo cônico no comprimento: entra a 4,5 mm à esquerda e sai a 3,5 mm à direita, fechado por um **disco** em cada ponta |
+| **Ponteiras** | o contorno são as letras e cada ponta recebe um disco com o furo do seu lado (4,5 mm à esquerda, 3,5 mm à direita) |
 
 A espessura da base é calculada para sobrar a parede mínima em volta do furo:
 
@@ -245,7 +245,7 @@ Base_Thickness = 2 × maior_raio + 2 × parede_mínima
 | Gerar | base + topo | permite exportar só a base (a "ponteira" com o furo) ou só o topo |
 | Fonte | Chewy | a fonte embutida (Apache 2.0) ou qualquer `.ttf` carregado por você |
 | Tamanho / Borda | 12 mm / 2 mm | altura do texto (mínimo 12 mm) e o offset em volta das letras |
-| Furo | ponteiras | `ponteiras` (disco em cada ponta) ou `túnel` (cone no comprimento) |
+| Furo | túnel | `túnel` (um furo no comprimento, com disco em cada ponta) ou `ponteiras` (disco em cada lado) |
 | Furo entrada / saída | 4,5 / 3,5 mm | diâmetro do disco da esquerda e da direita (ou os raios do cone, no modo túnel) |
 | Parede mínima | 1,6 mm | parede em volta do furo |
 | Topo | 1,5 mm | espessura da peça branca |
@@ -272,10 +272,10 @@ da estimativa `len(nome) × tamanho × 0,75` do `.scad`, então o furo cai sempr
 dentro do material e o texto pode ter qualquer largura.
 
 No modo **túnel**, o contorno é o mesmo do `.scad` (texto ∪ ponte ∩ `hull`),
-acrescido de uma **guarda** de ~1 mm junto às duas pontas: ela deixa a ponta reta
-e mantém parede dos dois lados do cone. Sem ela o cone escapa pela lateral das
-letras perto das pontas (é o que acontece no `.scad`, cuja parede lateral chega a
-ficar com menos de 1 mm).
+acrescido de um **disco em cada ponta**: a face plana do disco fecha o fim do
+cone (é onde o furo de 3,5 mm aparece à direita) e a lateral arredondada dá o
+acabamento. Sem ele o cone escapa pela lateral das letras perto das pontas (é o
+que acontece no `.scad`, cuja parede lateral chega a ficar com menos de 1 mm).
 
 No modo **ponteiras**, o contorno são as letras e cada ponta recebe um disco com
 o furo do seu lado — é o que fecha a ponta direita no diâmetro menor.

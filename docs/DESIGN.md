@@ -165,12 +165,13 @@ O campo é calculado nos **nós** da grade (passo de 0,07 a 0,30 mm):
 2. distância ao segmento mais próximo, com grade esparsa e busca em anéis
    (limitada a `borda + 2·passo`, o que mantém o sinal correto e o custo baixo);
 3. o perfil depende do modo do furo:
-   - **ponteiras** (padrão): `min(texto - borda, faixa fina, disco esq., disco dir.)`
-     — as letras mandam no contorno e cada ponta ganha um disco com o furo do
-     seu lado (entrada 4,5 mm à esquerda, saída 3,5 mm à direita);
-   - **túnel**: `min(texto, ponte ∩ hull(texto), guarda)` — o mesmo
-     `2dPonteETexto` do `.scad`, com uma guarda de ~1 mm junto às pontas para o
-     cone não escapar pela lateral;
+   - **túnel** (padrão): `min(texto, ponte ∩ hull(texto), discos, guarda)` — o
+     mesmo `2dPonteETexto` do `.scad`, com um disco em cada ponta: a face plana
+     fecha o fim do cone (o furo de saída aparece à direita) e a lateral
+     arredondada dá o acabamento;
+   - **ponteiras**: `min(texto - borda, faixa fina, disco esq., disco dir.)` — as
+     letras mandam no contorno e cada ponta ganha um disco com o furo do seu
+     lado (entrada 4,5 mm à esquerda, saída 3,5 mm à direita);
 4. o valor é limitado a ±`maxDist` longe do contorno (não muda a isolinha).
 
 ### Contorno, simplificação e triangulação
@@ -199,11 +200,12 @@ trianguladas com um furo circular e a parede do furo é um cilindro.
 
 No modo **túnel** o furo é um cone deitado no eixo X, centrado na espessura. O
 contorno vem do `.scad` (texto ∪ ponte ∩ `hull`), mas o `hull` sozinho afina as
-pontas e o cone passaria a abrir pela lateral das letras. Por isso entra a
-**guarda**, uma faixa com o raio local do cone mais ~1 mm que só acrescenta
-material onde o hull é mais estreito (as pontas). O furo toca a superfície só nas
-**duas tampas laterais**, trianguladas como um retângulo menos o círculo, e a
-superfície do cone é uma faixa de quadriláteros entre os dois anéis.
+pontas e o cone passaria a abrir pela lateral das letras. Por isso entram os
+**discos das pontas**: retângulo curto (a face plana onde o furo abre) mais
+semicírculo de raio `raio + parede`. Uma guarda de ~1 mm cobre o resto do cone
+quando o texto é grande o bastante para dispensá-la. O furo toca a superfície só
+nas **duas tampas laterais**, trianguladas como um retângulo menos o círculo, e
+a superfície do cone é uma faixa de quadriláteros entre os dois anéis.
 
 Nos dois modos a malha fica **fechada** (cada aresta em exatamente dois
 triângulos), o que é verificado nos testes.
@@ -215,8 +217,9 @@ triângulos), o que é verificado nos testes.
 | Fonte embutida (Chewy, Apache 2.0) | a página não consegue ler fontes do sistema; o `.ttf` garante o mesmo desenho em qualquer máquina |
 | Carregar `.ttf` próprio | o mesmo leitor serve para qualquer fonte TrueType |
 | Largura real do texto | a estimativa `len × tamanho × 0,75` do `.scad` às vezes é menor que o texto e o furo sai pela lateral |
-| Modo ponteiras como padrão | o contorno fica com as letras e o disco fecha cada ponta no diâmetro do seu lado (entrada à esquerda, saída à direita) |
-| Modo túnel = `hull` + guarda | o túnel no comprimento precisa de parede em volta; o hull é a menor silhueta que envolve o nome, e a guarda fecha as pontas |
+| Modo túnel como padrão | é o desenho do `.scad`: um furo só, da entrada à saída, com o disco fechando cada ponta no diâmetro do seu lado |
+| Modo túnel = `hull` + discos | o túnel no comprimento precisa de parede em volta; o hull é a menor silhueta que envolve o nome, e os discos dão face plana ao furo |
+| Modo ponteiras (opcional) | mantém o contorno das letras para quem quer um furo em cada lado |
 | Tamanho mínimo do texto 12 mm | abaixo disso o furo de 9 mm domina a peça e a parede fica fina demais |
 | Prévia com rasterizador próprio | evita ~600 KB de three.js só para desenhar; a cena tem poucos milhares de triângulos |
 | Passo da malha configurável | 0,15 mm é o padrão; 0,30 mm para ver rápido, 0,07 mm para peça pequena |

@@ -20,7 +20,7 @@
     holeOut: 3.5,
     minWall: 1.6,
     topThickness: 1.5,
-    holeStyle: 'tab',
+    holeStyle: 'tunnel',
     tabLeft: true,
     tabRight: true,
     columns: 4,
@@ -274,6 +274,23 @@
     lower.pop();
     upper.pop();
     return lower.concat(upper);
+  }
+
+  /** Disco no fim do cone: retangulo curto + semicirculo, face plana na ponta. */
+  function padSdf(pad, px, py) {
+    var R = pad.radius;
+    var xc = pad.end + pad.dir * R;
+    var x0 = Math.min(pad.end, xc);
+    var x1 = Math.max(pad.end, xc);
+    var rect = Field.sdfConvex([
+      { x: x0, y: -R },
+      { x: x1, y: -R },
+      { x: x1, y: R },
+      { x: x0, y: R }
+    ], px, py);
+    var dx = px - xc;
+    var disc = Math.sqrt(dx * dx + py * py) - R;
+    return rect < disc ? rect : disc;
   }
 
   function radiusAt(x, start, span, r1, r2) {
@@ -608,6 +625,11 @@
     // senao o cone abriria pela lateral das letras.
     var guardWall = Math.max(0.7, Math.min(1.2, wall * 0.6));
     var halfSpan = length / 2;
+    // disco em cada ponta: face plana no fim do cone e lateral arredondada
+    var pads = [
+      { end: -halfSpan, dir: 1, radius: r1 + wall },
+      { end: halfSpan, dir: -1, radius: r2 + wall }
+    ];
 
     var textField = Field.build(layout.contours, {
       h: h,
@@ -637,6 +659,11 @@
         if (x >= -halfSpan && x <= halfSpan) {
           var guard = Math.abs(y) - (radiusAt(x, -halfSpan, length, r1, r2) + guardWall);
           if (guard < base) base = guard;
+        }
+        // disco em cada ponta do cone: face plana + lateral arredondada
+        for (var pad = 0; pad < pads.length; pad++) {
+          var padValue = padSdf(pads[pad], x, y);
+          if (padValue < base) base = padValue;
         }
         baseValues[index] = base;
         // topo = base menos o texto
@@ -828,6 +855,8 @@
       'Min_Wall_Thickness  = ' + num(p.minWall) + ';',
       'Afastamento_Ponteira = ' + num(gap) + ';',
       'Meia_Ponte = ' + num(band) + '; // metade da faixa fina que liga as letras',
+      'Raio_Ponteira_Entrada = Hole_Radius_Entrada + Min_Wall_Thickness;',
+      'Raio_Ponteira_Saida   = Hole_Radius_Saida + Min_Wall_Thickness;',
       'Base_Thickness = (max(Hole_Radius_Entrada, Hole_Radius_Saida) * 2) + (2 * Min_Wall_Thickness);',
       'Top_Thickness  = ' + num(p.topThickness) + ';',
       '',
@@ -900,6 +929,15 @@
       '                ]);',
       '                hull() { offset(r = Border_Size) { textProfile(nome_texto); } }',
       '            }',
+      '            // disco em cada ponta: face plana no fim do cone',
+      '            translate([-comprimento/2, -Raio_Ponteira_Entrada])',
+      '                square([Raio_Ponteira_Entrada, 2 * Raio_Ponteira_Entrada]);',
+      '            translate([-comprimento/2 + Raio_Ponteira_Entrada, 0])',
+      '                circle(r = Raio_Ponteira_Entrada);',
+      '            translate([ comprimento/2 - Raio_Ponteira_Saida, 0])',
+      '                circle(r = Raio_Ponteira_Saida);',
+      '            translate([ comprimento/2 - Raio_Ponteira_Saida, -Raio_Ponteira_Saida])',
+      '                square([Raio_Ponteira_Saida, 2 * Raio_Ponteira_Saida]);',
       '        } else {',
       '            // faixa fina ligando as letras + ponteira redonda em cada ponta',
       '            square([comprimento, 2 * Meia_Ponte], center = true);',

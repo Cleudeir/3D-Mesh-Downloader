@@ -784,12 +784,12 @@ section('18. Gerador de nomes (fonte, geometria e STL)');
     Math.abs(boundsBase.size[0] - (piece.width + 2 * params.border)) < 0.35,
     boundsBase.size[0].toFixed(3));
   check('o furo atravessa a peca no eixo X', boundsBase.size[0] > 20);
-  check('a altura acompanha o hull do texto (nao e o trapezio da ponte)',
-    boundsBase.size[1] < 2 * (params.holeIn + params.minWall) - 0.5,
+  check('o disco da ponta da a altura da parede do furo',
+    Math.abs(boundsBase.size[1] - 2 * (params.holeIn + params.minWall)) < 0.35,
     boundsBase.size[1].toFixed(2));
 
   // --- modo ponteira: letras + ponteira em cada ponta ---
-  const tabPiece = NomesParts.buildPiece(font.layout('GABRIEL', 8), params);
+  const tabPiece = NomesParts.buildPiece(font.layout('GABRIEL', 8), NomesParts.params({ holeStyle: 'tab' }));
   check('ponteira: a peca foi gerada', !!tabPiece);
   check('ponteira: tem furo', tabPiece.hasTunnel === true);
   const tabBase = analyze(tabPiece.base);
