@@ -14,13 +14,14 @@
   var TUNNEL_SEGMENTS = 64;
 
   var DEFAULTS = {
-    fontSize: 12,
+    fontSize: 15,
     border: 2,
     holeIn: 4.5,
     holeOut: 3.5,
     minWall: 1.6,
     topThickness: 1.5,
     holeStyle: 'tunnel',
+    plug: 2,
     tabLeft: true,
     tabRight: true,
     columns: 4,
@@ -188,18 +189,30 @@
 
     // raio do cone na posicao real das tampas laterais
     var span = size.length;
+    var plug = Math.max(0, Number(size.plug) || 0);
     var rOutLeft = radiusAt(left.x, -span / 2, span, radiusIn, radiusOut);
     var rOutRight = radiusAt(right.x, -span / 2, span, radiusIn, radiusOut);
     var centerZ = H / 2;
 
+    // tampao: o cone termina antes da ponta e um disco fecha a saida
+    var xCap = plug > 0 ? Math.max(left.x + 0.5, right.x - plug) : right.x;
+    var rCap = radiusAt(xCap, -span / 2, span, radiusIn, radiusOut);
+
     var angles = tunnelAngles(left, right, centerZ, H);
     // anel do circulo em sentido horario (furo visto de +X)
     var circleLeft = circleRing(rOutLeft, centerZ, angles).reverse();
-    var circleRight = circleRing(rOutRight, centerZ, angles).reverse();
+    var circleRight = circleRing(rCap, centerZ, angles).reverse();
 
     var endLeft = addEndFace(positions, left, H, circleLeft, -1);
-    var endRight = addEndFace(positions, right, H, circleRight, 1);
-    addTunnel(positions, left.x, right.x, circleLeft, circleRight);
+    var endRight;
+    if (plug > 0) {
+      endRight = addEndFace(positions, right, H, null, 1);
+      addTunnel(positions, left.x, xCap, circleLeft, circleRight);
+      addPlugFace(positions, xCap, circleRight);
+    } else {
+      endRight = addEndFace(positions, right, H, circleRight, 1);
+      addTunnel(positions, left.x, xCap, circleLeft, circleRight);
+    }
 
     return {
       positions: positions,
@@ -208,6 +221,25 @@
       radiusIn: rOutLeft,
       radiusOut: rOutRight
     };
+  }
+
+  /** Disco que fecha o fim do cone (normal para dentro do furo, -X). */
+  function addPlugFace(positions, x, ring) {
+    var cy = 0;
+    var cz = 0;
+    for (var i = 0; i < ring.length; i++) {
+      cy += ring[i].x;
+      cz += ring[i].y;
+    }
+    cy /= ring.length;
+    cz /= ring.length;
+    for (var k = 0; k < ring.length; k++) {
+      var next = (k + 1) % ring.length;
+      tri(positions,
+        [x, cy, cz],
+        [x, ring[k].x, ring[k].y],
+        [x, ring[next].x, ring[next].y]);
+    }
   }
 
   function circleRing(radius, centerZ, angles) {
@@ -349,7 +381,7 @@
     ];
     if (half <= 0) return false;
 
-    var mesh = Field.triangulate(rect, [circle]);
+    var mesh = circle ? Field.triangulate(rect, [circle]) : Field.triangulate(rect, []);
     mesh.triangles.forEach(function (a) {
       var p0 = [end.x, a[0].x, a[0].y];
       var p1 = [end.x, a[1].x, a[1].y];
@@ -678,6 +710,7 @@
     var size = {
       height: height,
       length: length,
+      plug: Math.max(0, Math.min(Number(p.plug) || 0, length / 3)),
       tolerance: Math.max(0.05, h * 0.75)
     };
 
@@ -857,6 +890,7 @@
       'Meia_Ponte = ' + num(band) + '; // metade da faixa fina que liga as letras',
       'Raio_Ponteira_Entrada = Hole_Radius_Entrada + Min_Wall_Thickness;',
       'Raio_Ponteira_Saida   = Hole_Radius_Saida + Min_Wall_Thickness;',
+      'Tampao = ' + num(p.plug) + '; // disco que fecha a saida do cone (0 = aberto)',
       'Base_Thickness = (max(Hole_Radius_Entrada, Hole_Radius_Saida) * 2) + (2 * Min_Wall_Thickness);',
       'Top_Thickness  = ' + num(p.topThickness) + ';',
       '',
@@ -868,6 +902,7 @@
       'function comprimentoDe(largura) = largura + (Border_Size * 2);',
       'function xPonteiraEsquerda(comprimento) = -(comprimento / 2) - Hole_Radius_Entrada - Afastamento_Ponteira;',
       'function xPonteiraDireita(comprimento)  =  (comprimento / 2) + Hole_Radius_Saida  + Afastamento_Ponteira;',
+      'function raioNoFimDoCone(largura) = Hole_Radius_Entrada + (Hole_Radius_Saida - Hole_Radius_Entrada) * ((comprimentoDe(largura) - Tampao) / comprimentoDe(largura));',
       '',
       '$fn = 64;',
       '',
@@ -959,14 +994,22 @@
       '',
       'module generateBasePeca(nome_texto, largura) {',
       '    comprimento = comprimentoDe(largura);',
-      '    difference() {',
-      '        linear_extrude(height = Base_Thickness) { 2dPonteETexto(nome_texto, largura); }',
-      '        if (Modo_Furo == "tunel") {',
-      '            translate([-comprimento/2, 0, Base_Thickness / 2])',
+      '    union() {',
+      '        difference() {',
+      '            linear_extrude(height = Base_Thickness) { 2dPonteETexto(nome_texto, largura); }',
+      '            if (Modo_Furo == "tunel") {',
+      '                translate([-comprimento/2, 0, Base_Thickness / 2])',
+      '                    rotate([0, 90, 0])',
+      '                        cylinder(h = comprimento - Tampao, r1 = Hole_Radius_Entrada, r2 = raioNoFimDoCone(largura));',
+      '            } else {',
+      '                furoPonteiras(largura, Base_Thickness);',
+      '            }',
+      '        }',
+      '        if (Modo_Furo == "tunel" && Tampao > 0) {',
+      '            // tampao: disco de 2 mm com o diametro do furo fechando a saida',
+      '            translate([comprimento/2 - Tampao, 0, Base_Thickness / 2])',
       '                rotate([0, 90, 0])',
-      '                    cylinder(h = comprimento, r1 = Hole_Radius_Entrada, r2 = Hole_Radius_Saida);',
-      '        } else {',
-      '            furoPonteiras(largura, Base_Thickness);',
+      '                    cylinder(h = Tampao, r1 = raioNoFimDoCone(largura), r2 = Hole_Radius_Saida);',
       '        }',
       '    }',
       '}',

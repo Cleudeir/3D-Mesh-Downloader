@@ -227,7 +227,7 @@ O furo tem dois modos:
 
 | Furo | Como fica |
 |---|---|
-| **Túnel** (padrão) | um único furo cônico no comprimento: entra a 4,5 mm à esquerda e sai a 3,5 mm à direita, fechado por um **disco** em cada ponta |
+| **Túnel** (padrão) | um único furo cônico no comprimento: entra a 4,5 mm à esquerda e termina a 3,5 mm à direita, fechado por um **tampão** de 2 mm com o diâmetro do furo |
 | **Ponteiras** | o contorno são as letras e cada ponta recebe um disco com o furo do seu lado (4,5 mm à esquerda, 3,5 mm à direita) |
 
 A espessura da base é calculada para sobrar a parede mínima em volta do furo:
@@ -244,10 +244,11 @@ Base_Thickness = 2 × maior_raio + 2 × parede_mínima
 | Modo | montado | `juntos` (topo em cima da base), `separado` (as duas peças na mesa) ou `ambos` |
 | Gerar | base + topo | permite exportar só a base (a "ponteira" com o furo) ou só o topo |
 | Fonte | Chewy | a fonte embutida (Apache 2.0) ou qualquer `.ttf` carregado por você |
-| Tamanho / Borda | 12 mm / 2 mm | altura do texto (mínimo 12 mm) e o offset em volta das letras |
+| Tamanho / Borda | 15 mm / 2 mm | altura do texto (mínimo 12 mm) e o offset em volta das letras |
 | Furo | túnel | `túnel` (um furo no comprimento, com disco em cada ponta) ou `ponteiras` (disco em cada lado) |
 | Furo entrada / saída | 4,5 / 3,5 mm | diâmetro do disco da esquerda e da direita (ou os raios do cone, no modo túnel) |
 | Parede mínima | 1,6 mm | parede em volta do furo |
+| Tampão | 2 mm | disco com o diâmetro do furo que fecha a saída do cone (0 = furo aberto nas duas pontas) |
 | Topo | 1,5 mm | espessura da peça branca |
 | Colunas / Espaço X / Y | 4 / 60 / 40 mm | grade da mesa |
 | Dist. separado / ambos | 40 / 45 mm | afastamento entre as peças |

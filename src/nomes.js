@@ -25,6 +25,7 @@
     holeIn: document.getElementById('holeIn'),
     holeOut: document.getElementById('holeOut'),
     holeStyle: document.getElementById('holeStyle'),
+    plug: document.getElementById('plug'),
     minWall: document.getElementById('minWall'),
     topThickness: document.getElementById('topThickness'),
     quality: document.getElementById('quality'),
@@ -42,7 +43,7 @@
 
   // v2: muda o furo padrao (tunel) e o tamanho minimo do texto (12 mm);
   // a chave nova descarta formularios salvos com os padroes antigos
-  var STORAGE_KEY = 'nomesForm2';
+  var STORAGE_KEY = 'nomesForm3';
   var DEBOUNCE_MS = 260;
   var MAX_NAMES = 120;
 
@@ -61,7 +62,7 @@
   // ---------------------------------------------------------------------------
 
   var FIELDS = ['names', 'mode', 'pieces', 'columns', 'spacingX', 'spacingY',
-    'distanceSeparate', 'distanceBoth', 'fontSize', 'border', 'holeIn', 'holeOut', 'holeStyle',
+    'distanceSeparate', 'distanceBoth', 'fontSize', 'border', 'holeIn', 'holeOut', 'holeStyle', 'plug',
     'minWall', 'topThickness', 'quality', 'baseColor', 'topColor'];
 
   function saveForm() {
@@ -91,11 +92,12 @@
 
   function readParams() {
     return NomesParts.params({
-      fontSize: numberValue(els.fontSize, 12, 12, 200),
+      fontSize: numberValue(els.fontSize, 15, 12, 200),
       border: numberValue(els.border, 2, 0, 40),
       holeIn: numberValue(els.holeIn, 4.5, 0.5, 60),
       holeOut: numberValue(els.holeOut, 3.5, 0.5, 60),
       holeStyle: els.holeStyle.value,
+      plug: numberValue(els.plug, 2, 0, 20),
       minWall: numberValue(els.minWall, 1.6, 0.2, 20),
       topThickness: numberValue(els.topThickness, 1.5, 0.3, 20),
       columns: Math.round(numberValue(els.columns, 4, 1, 40)),
@@ -149,7 +151,7 @@
   // ---------------------------------------------------------------------------
 
   function pieceKey(name, params) {
-    return [name, params.fontSize, params.border, params.holeIn, params.holeOut, params.holeStyle,
+    return [name, params.fontSize, params.border, params.holeIn, params.holeOut, params.holeStyle, params.plug,
       params.minWall, params.topThickness, params.quality].join('|');
   }
 

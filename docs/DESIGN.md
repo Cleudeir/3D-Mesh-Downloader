@@ -217,10 +217,11 @@ triângulos), o que é verificado nos testes.
 | Fonte embutida (Chewy, Apache 2.0) | a página não consegue ler fontes do sistema; o `.ttf` garante o mesmo desenho em qualquer máquina |
 | Carregar `.ttf` próprio | o mesmo leitor serve para qualquer fonte TrueType |
 | Largura real do texto | a estimativa `len × tamanho × 0,75` do `.scad` às vezes é menor que o texto e o furo sai pela lateral |
-| Modo túnel como padrão | é o desenho do `.scad`: um furo só, da entrada à saída, com o disco fechando cada ponta no diâmetro do seu lado |
+| Modo túnel como padrão | é o desenho do `.scad`: um furo só, da entrada à saída, com disco em cada ponta |
+| Tampão de 2 mm | fecha a saída do cone com um disco do diâmetro do furo, deixando o furo como um encaixe cego |
 | Modo túnel = `hull` + discos | o túnel no comprimento precisa de parede em volta; o hull é a menor silhueta que envolve o nome, e os discos dão face plana ao furo |
 | Modo ponteiras (opcional) | mantém o contorno das letras para quem quer um furo em cada lado |
-| Tamanho mínimo do texto 12 mm | abaixo disso o furo de 9 mm domina a peça e a parede fica fina demais |
+| Tamanho mínimo do texto 12 mm (padrão 15 mm) | abaixo disso o furo de 9 mm domina a peça e a parede fica fina demais |
 | Prévia com rasterizador próprio | evita ~600 KB de three.js só para desenhar; a cena tem poucos milhares de triângulos |
 | Passo da malha configurável | 0,15 mm é o padrão; 0,30 mm para ver rápido, 0,07 mm para peça pequena |
 
