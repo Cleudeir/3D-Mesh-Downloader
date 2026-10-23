@@ -17,6 +17,8 @@ objeto) em um arquivo Wavefront OBJ — ou em STL, pronto para impressão 3D.
 - **STL binário ou ASCII** convertido no navegador (o `.obj` nunca é criado)
 - Filtro por **nome** e por **tamanho**, com seleção explícita por modelo
 - **Lista de exclusão** persistente (o que não deve entrar no arquivo)
+- **Gerador de chaveiros com nome** (`nomes.html`): prévia 3D, parâmetros e STL,
+  partindo do mesmo desenho do `nomes.scad`
 
 Arquitetura e decisões de projeto: [docs/DESIGN.md](docs/DESIGN.md).
 
@@ -67,12 +69,13 @@ O popup é dividido em **abas**, no estilo do Chrome:
 | **Modelos** | contador, filtro por nome e tamanho, atalhos de seleção e a lista de malhas |
 | **Exclusão** | padrões que nunca entram no arquivo e a prévia do que está sendo excluído |
 | **Exportar** | formato (OBJ/STL) e as opções de exportação |
+| **Nomes** | abre o gerador de chaveiros com o nome (página inteira, com prévia 3D e STL) |
 
 O botão **Baixar** e o **Atualizar contagem** ficam na aba **Modelos**, junto da
 lista; as outras abas cuidam só de configuração. A barra de status continua
 visível em qualquer aba. O badge de cada aba resume o estado (malhas
 selecionadas, padrões ativos) e a última aba usada é restaurada ao reabrir o
-popup. Teclado: `←`/`→` alternam e `1`/`2`/`3` saltam.
+popup. Teclado: `←`/`→` alternam e `1`/`2`/`3`/`4` saltam.
 
 **Tudo o que você configura fica salvo** em `chrome.storage.local`: formato,
 opções de exportação, padrões de exclusão, regra de tamanho e a aba ativa.
@@ -207,6 +210,67 @@ Exemplo real (página do Tripo3D, 68 malhas):
 
 ---
 
+## Gerador de chaveiros com nome
+
+A aba **Nomes** do popup abre o gerador em uma **aba inteira** do navegador
+(`nomes.html`) — é o espaço que a prévia 3D e o STL precisam. A lista digitada no
+popup vai junto quando você clica em **Abrir com esta lista**.
+
+Cada nome vira um chaveiro de **duas peças**, igual ao `nomes.scad`:
+
+| Peça | O que é |
+|---|---|
+| **Base** (rosa) | extrusão da silhueta com uma **ponte** em volta do nome e um **furo cônico** atravessando a peça no sentido do comprimento |
+| **Topo** (branco) | a mesma silhueta, com o **nome vazado**; colado na base, o nome aparece na cor da base |
+
+O furo é um cone de `r1` na entrada e `r2` na saída, centrado na espessura. A
+espessura da base é calculada para sobrar a parede mínima em volta do furo:
+
+```
+Base_Thickness = 2 × maior_raio + 2 × parede_mínima
+```
+
+### Parâmetros
+
+| Parâmetro | Padrão | Efeito |
+|---|---|---|
+| Nomes | — | um por linha (vírgula também vale); até 120 por lote |
+| Modo | montado | `juntos` (topo em cima da base), `separado` (as duas peças na mesa) ou `ambos` |
+| Gerar | base + topo | permite exportar só a base (a "ponteira" com o furo) ou só o topo |
+| Fonte | Chewy | a fonte embutida (Apache 2.0) ou qualquer `.ttf` carregado por você |
+| Tamanho / Borda | 8 mm / 2 mm | altura do texto e o offset em volta das letras |
+| Furo entrada / saída | 4,5 / 3,5 mm | raios do cone (entrada à esquerda, saída à direita) |
+| Parede mínima | 1,6 mm | distância entre o furo e a superfície |
+| Topo | 1,5 mm | espessura da peça branca |
+| Colunas / Espaço X / Y | 4 / 220 / 160 mm | grade da mesa, igual ao `for` do `.scad` |
+| Dist. separado / ambos | 40 / 45 mm | afastamento entre as peças |
+| Qualidade | 0,15 mm | passo da malha (0,30 rápida … 0,07 muito alta) |
+
+A prévia é um rasterizador próprio (sem three.js): arraste para girar, roda para
+o zoom, dois cliques para reenquadrar, e os botões **Perspectiva / Topo / Frente**.
+As cores da prévia também são configuráveis.
+
+### Exportar
+
+- **STL** — um arquivo com todas as peças já posicionadas na grade, em milímetros.
+  A malha é fechada (cada aresta pertence a exatamente dois triângulos), o que
+  evita furos no fatiador. Com **um STL por nome** marcado, sai um arquivo por
+  chaveiro (até 20 de uma vez).
+- **`.scad`** — o mesmo desenho como código-fonte para abrir no OpenSCAD.
+
+### Diferenças em relação ao `nomes.scad`
+
+O gerador usa a **largura real do texto** (medida nos contornos do glifo) em vez
+da estimativa `len(nome) × tamanho × 0,75` do `.scad`. A ponte acompanha essa
+largura, então as pontas do cone terminam sempre dentro do material e a parede
+mínima é garantida nas duas extremidades.
+
+O `.scad` original ainda recorta a ponte com `hull()` do texto; isso afinava as
+pontas até o furo sair pela lateral. O gerador mantém as pontas retas — a
+silhueta do nome continua no topo vazado, que é onde ela aparece.
+
+---
+
 ## Arquitetura
 
 ```
@@ -225,6 +289,12 @@ popup.js  ──chrome.tabs.sendMessage──▶  content.js (contexto isolado)
 | `src/content.js` | Ponte isolada ↔ página. Não toca em dados da página |
 | `src/background.js` | Service worker: localiza a aba alvo de um deep link sem a permissao `tabs` |
 | `src/popup.html` / `src/popup.js` | Interface: contador, opções, disparo do download |
+| `src/nomes.html` / `src/nomes.js` | Gerador de chaveiros: formulário, prévia 3D e exportação |
+| `src/nomes/font.js` | Leitor de fonte TrueType (`cmap`/`loca`/`glyf`) e montagem do texto em contornos |
+| `src/nomes/field.js` | Distância assinada, contorno (marching squares), simplificação e triangulação com furos |
+| `src/nomes/parts.js` | Base/topo, furo cônico, grade, STL binário e `.scad` |
+| `src/nomes/render.js` | Rasterizador 3D em canvas (z-buffer, sombreamento plano, órbita) |
+| `src/fonts/` | Fonte Chewy (Apache 2.0) e a licença |
 | `src/manifest.json` | MV3, permissão `activeTab`, content scripts em `<all_urls>` |
 
 ### Como a cena é capturada
@@ -285,8 +355,13 @@ Cobre: captura de cena, transformações (com e sem), normais (atributo e planar
 UVs, expansão de instâncias, skinning, materiais, modo por-malha, índices das faces
 e robustez (página sem cena, página que define o próprio `__THREE_DEVTOOLS__`).
 
+O gerador de nomes também tem seção própria: leitura da fonte (`cmap`/`glyf`),
+contorno por marching squares, triangulação com furos, malha **fechada** das duas
+peças (cada aresta em exatamente dois triângulos), volume positivo, STL binário e
+o `.scad` exportado.
+
 ```
-45 passed, 0 failed
+163 passed, 0 failed
 ```
 
 ### Integração (navegador real)

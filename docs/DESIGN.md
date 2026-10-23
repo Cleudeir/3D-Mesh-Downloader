@@ -127,6 +127,97 @@ conversão é feita com `Color.getHexString('srgb')`, com fallback manual
 
 ---
 
+## Gerador de nomes (chaveiros)
+
+A aba **Nomes** do popup abre `nomes.html` em uma aba inteira: o popup tem 360px
+e a prévia 3D + a exportação STL não cabem nele. A página não fala com a aba do
+navegador (não usa `content.js`): ela é um gerador de geometria independente.
+
+### Pipeline
+
+```
+.ttf ──cmap/loca/glyf──▶ contornos (mm)
+      ──SDF do texto────▶ min(texto - borda, ponte)   ┐
+      ──marching squares▶ contorno da base            ├──▶ extrusão ──▶ STL
+      ──SDF do topo─────▶ max(base, -texto)  ─────────┘
+```
+
+Nada de three.js nem bibliotecas: o leitor de fonte (`font.js`), o campo de
+distância (`field.js`), a malha (`parts.js`) e a prévia (`render.js`) são
+implementações próprias e sem dependências.
+
+### Por que distância assinada
+
+O `offset(r = Border_Size)` do OpenSCAD é uma **dilatação** (soma de Minkowski
+com um disco). Num campo de distância assinada isso é uma conta só:
+
+```
+borda(texto) = sdf(texto) - r          (negativo dentro)
+```
+
+O mesmo campo resolve a peça branca: `topo = base − texto` vira
+`max(sdf_base, -sdf_texto)`. Com isso as duas peças saem do mesmo grid, sem
+booleanas de polígono.
+
+O campo é calculado nos **nós** da grade (passo de 0,07 a 0,30 mm):
+
+1. preenchimento por varredura (winding != 0) para o sinal;
+2. distância ao segmento mais próximo, com grade esparsa e busca em anéis
+   (limitada a `borda + 2·passo`, o que mantém o sinal correto e o custo baixo);
+3. a ponte entra como distância exata a um trapézio convexo, por `min`;
+4. o valor é limitado a ±`maxDist` longe do contorno (não muda a isolinha).
+
+### Contorno, simplificação e triangulação
+
+- **Marching squares** com identificação das arestas por índice: cada ponto de
+  cruzamento é calculado uma vez e reaproveitado pelas duas células vizinhas, o
+  que garante contornos fechados (sem "pontas soltas").
+- Casos de sela (4 cruzamentos) são resolvidos pela média dos 4 cantos.
+- **Douglas-Peucker** em anel fechado (tolerância ~`passo/12`).
+- **Triangulação** por *ear clipping*, com os furos ligados ao anel externo por
+  uma fenda ("keyhole"). A fenda é validada: nada de cruzar aresta ou passar por
+  dentro de outro furo. A área da triangulação é conferida contra
+  `área(externo) − Σárea(furos)`; se não fechar, tenta a ordem inversa dos furos.
+
+### Base com furo cônico
+
+A base é a extrusão do perfil menos um cone deitado no eixo X, centrado na
+espessura. A parede é garantida por construção:
+
+```
+espessura = 2·max(r1, r2) + 2·parede
+trapézio  = metade da largura = raio(x) + parede
+```
+
+Como o raio e a largura da ponte variam linearmente entre as duas pontas, a
+parede é constante. O furo só toca a superfície nas **duas tampas laterais**,
+que são trianguladas como um retângulo menos o círculo (a mesma ear clipping com
+furo) e a superfície do cone é uma faixa de quadriláteros entre os dois anéis.
+A malha fica **fechada** (cada aresta em exatamente dois triângulos), o que é
+verificado nos testes.
+
+### Decisões
+
+| Decisão | Motivo |
+|---|---|
+| Fonte embutida (Chewy, Apache 2.0) | a página não consegue ler fontes do sistema; o `.ttf` garante o mesmo desenho em qualquer máquina |
+| Carregar `.ttf` próprio | o mesmo leitor serve para qualquer fonte TrueType |
+| Largura real do texto | a estimativa `len × tamanho × 0,75` do `.scad` às vezes é menor que o texto e o cone sai pela lateral |
+| Pontas retas (sem `hull()` do texto) | o recorte por `hull()` afinava as pontas até furar a parede mínima |
+| Prévia com rasterizador próprio | evita ~600 KB de three.js só para desenhar; a cena tem poucos milhares de triângulos |
+| Passo da malha configurável | 0,15 mm é o padrão; 0,30 mm para ver rápido, 0,07 mm para peça pequena |
+
+### Exportação
+
+- **STL binário**, em milímetros, com todas as peças já na grade (`colunas`,
+  `espaço X/Y`), igual ao `for` do `.scad`. Uma peça por nome, ou o lote todo.
+- **`.scad`**: o mesmo desenho como código, com os parâmetros escolhidos. O
+  gerador usa a largura real do texto, então o `.scad` exportado mantém a
+  estrutura do original (`2dPonteETexto`, `generateBasePeca`, `generateTopoPeca`)
+  e a prévia/STL continuam sendo a referência de medida.
+
+---
+
 ## Filtros, seleção e exclusão
 
 | Conceito | Onde é aplicado | Como |

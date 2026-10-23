@@ -45,6 +45,9 @@
     excludeSizeKB: document.getElementById('excludeSizeKB'),
     tabBadgeModels: document.getElementById('tabBadgeModels'),
     tabBadgeExclude: document.getElementById('tabBadgeExclude'),
+    nomesQuick: document.getElementById('nomesQuick'),
+    openNomes: document.getElementById('openNomes'),
+    openNomesWithList: document.getElementById('openNomesWithList'),
     reloadExt: document.getElementById('reloadExt'),
     staleBar: document.getElementById('staleBar'),
     staleText: document.getElementById('staleText'),
@@ -73,6 +76,7 @@
   var STORAGE_KEY_SIZE_RULE = 'sizeRule';
   var STORAGE_KEY_SCANNED = 'sizeScanned';
   var STORAGE_KEY_SETTINGS = 'settings';
+  var STORAGE_KEY_NOMES = 'nomesQuick';
   var DEFAULT_SIZE_RULE = { mode: 'below', kb: 50 };
   // STL e o padrao: e o formato que a maioria quer (impressao 3D) e evita o
   // .obj gigante com .mtl ao lado.
@@ -96,7 +100,8 @@
     // injeta campos que nao estao gravados.
     var keys = [
       STORAGE_KEY, STORAGE_KEY_SIZE_LIST, STORAGE_KEY_SIZE_IGNORED, STORAGE_KEY_SIZE_RULE,
-      STORAGE_KEY_SCANNED, STORAGE_KEY_SETTINGS, ACTIVE_TAB_KEY, 'excludeSize'
+      STORAGE_KEY_SCANNED, STORAGE_KEY_SETTINGS, ACTIVE_TAB_KEY, 'excludeSize',
+      STORAGE_KEY_NOMES
     ];
 
     function apply(items) {
@@ -120,6 +125,9 @@
       }
 
       applySettings(items[STORAGE_KEY_SETTINGS]);
+      if (els.nomesQuick && typeof items[STORAGE_KEY_NOMES] === 'string') {
+        els.nomesQuick.value = items[STORAGE_KEY_NOMES];
+      }
       renderSizeRule();
       renderSizeList();
       selectTab(items[ACTIVE_TAB_KEY] || 'modelos');
@@ -1048,6 +1056,44 @@
     renderSizeList();
     requestInfo();
   });
+
+  // --- gerador de nomes -----------------------------------------------------
+  // A aba "Nomes" nao exporta nada sozinha: ela abre a pagina inteira do
+  // gerador (previa 3D + STL), que nao cabe nos 360px do popup.
+  function openNomesPage(withList) {
+    var url = chrome.runtime.getURL('nomes.html');
+    var list = withList && els.nomesQuick ? els.nomesQuick.value : '';
+
+    function open() {
+      try {
+        chrome.tabs.create({ url: url });
+      } catch (e) {
+        window.open(url, '_blank');
+      }
+    }
+
+    if (list && list.trim()) {
+      try {
+        chrome.storage.local.set({ nomesPending: list }, open);
+        return;
+      } catch (e) {
+        /* storage indisponivel: abre sem a lista */
+      }
+    }
+    open();
+  }
+
+  if (els.openNomes) {
+    els.openNomes.addEventListener('click', function () { openNomesPage(false); });
+  }
+  if (els.openNomesWithList) {
+    els.openNomesWithList.addEventListener('click', function () { openNomesPage(true); });
+  }
+  if (els.nomesQuick) {
+    els.nomesQuick.addEventListener('input', function () {
+      try { chrome.storage.local.set({ [STORAGE_KEY_NOMES]: els.nomesQuick.value }); } catch (e) { /* sem storage */ }
+    });
+  }
 
   // Poll while the popup stays open so the count follows the page.
   pollTimer = setInterval(requestInfo, 2000);

@@ -687,7 +687,150 @@ section('Deep link: achar a aba mesmo quando o SPA troca de rota');
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n' + '-'.repeat(58));
+section('18. Gerador de nomes (fonte, geometria e STL)');
+{
+  const fs = require('fs');
+  const path = require('path');
+  const NomesFont = require('../src/nomes/font.js');
+  const NomesField = require('../src/nomes/field.js');
+  const NomesParts = require('../src/nomes/parts.js');
+
+  const fontBuffer = fs.readFileSync(path.join(__dirname, '..', 'src', 'fonts', 'Chewy-Regular.ttf'));
+  const font = NomesFont.parse(new Uint8Array(fontBuffer.buffer, fontBuffer.byteOffset, fontBuffer.byteLength));
+
+  eq('a fonte embutida abre (unidades por em)', font.unitsPerEm, 1024);
+  check('a fonte tem glifos', font.glyphCount > 100, String(font.glyphCount));
+
+  const layout = font.layout('GABRIEL', 8);
+  check('o texto virou contornos', layout.contours.length > 3, String(layout.contours.length));
+  check('a largura do texto e plausivel', layout.width > 20 && layout.width < 40, layout.width.toFixed(2));
+  check('a altura do texto e plausivel', layout.height > 5 && layout.height < 8, layout.height.toFixed(2));
+  check('o texto fica centralizado na origem',
+    Math.abs(layout.minX + layout.maxX) < 0.001 && Math.abs(layout.minY + layout.maxY) < 0.001,
+    layout.minX.toFixed(3) + '..' + layout.maxX.toFixed(3));
+
+  const accented = font.layout('ÁÉÍÓÚÇÃÕ', 8);
+  check('acentos e cedilha tem contorno', accented.contours.length > 5, String(accented.contours.length));
+
+  // --- campo de distancia + triangulacao ---
+  const square = [[0, 0], [10, 0], [10, 10], [0, 10]].map(([x, y]) => ({ x, y }));
+  const field = NomesField.build([square], { h: 0.1, maxDist: 2 });
+  const rings = NomesField.contour(field, 0).map((r) => NomesField.simplify(r, 0.01));
+  eq('o quadrado gera 1 contorno', rings.length, 1);
+  check('a area do contorno bate com 100 mm2', Math.abs(Math.abs(NomesField.area(rings[0])) - 100) < 0.05,
+    NomesField.area(rings[0]).toFixed(3));
+
+  const triangulated = NomesField.triangulate(rings[0], []);
+  check('a triangulacao cobre a area', Math.abs(NomesField.triangulationArea(triangulated.triangles) - 100) < 0.05,
+    NomesField.triangulationArea(triangulated.triangles).toFixed(3));
+
+  // furo dentro de um quadrado: a triangulacao nao pode tampar o furo
+  const outer = [[0, 0], [10, 0], [10, 10], [0, 10]].map(([x, y]) => ({ x, y }));
+  const hole = [[3, 3], [3, 7], [7, 7], [7, 3]].map(([x, y]) => ({ x, y }));
+  const withHole = NomesField.triangulate(outer, [hole]);
+  check('furo de 16 mm2 respeitado na triangulacao',
+    Math.abs(NomesField.triangulationArea(withHole.triangles) - 84) < 0.05,
+    NomesField.triangulationArea(withHole.triangles).toFixed(3));
+
+  // --- pecas ---
+  function analyze(positions) {
+    const key = (i, k) => [0, 1, 2].map((j) => Math.round(positions[i + k * 3 + j] * 1e4)).join(',');
+    const edges = new Map();
+    let volume = 0;
+    let degenerate = 0;
+    for (let i = 0; i < positions.length; i += 9) {
+      const p = [0, 1, 2].map((k) => [positions[i + k * 3], positions[i + k * 3 + 1], positions[i + k * 3 + 2]]);
+      const [a, b, c] = p;
+      volume += (a[0] * (b[1] * c[2] - b[2] * c[1]) -
+        a[1] * (b[0] * c[2] - b[2] * c[0]) +
+        a[2] * (b[0] * c[1] - b[1] * c[0])) / 6;
+      const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+      const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+      if (Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) < 1e-9) degenerate++;
+      const keys = p.map((q) => q.map((v) => Math.round(v * 1e4)).join(','));
+      for (let e = 0; e < 3; e++) {
+        const k = keys[e] + '|' + keys[(e + 1) % 3];
+        edges.set(k, (edges.get(k) || 0) + 1);
+      }
+    }
+    let open = 0;
+    for (const [k, count] of edges) {
+      const [a, b] = k.split('|');
+      if ((edges.get(b + '|' + a) || 0) !== count) open += count;
+    }
+    return { volume, degenerate, open, triangles: positions.length / 9 };
+  }
+
+  const params = NomesParts.params({});
+  const piece = NomesParts.buildPiece(font.layout('GABRIEL', 8), params);
+  check('a peca foi gerada', !!piece);
+  check('a peca tem furo conico', piece.hasTunnel === true);
+  check('a espessura da base = 2*raio + 2*parede',
+    Math.abs(piece.height - (2 * 4.5 + 2 * 1.6)) < 1e-6, piece.height.toFixed(3));
+
+  const baseMesh = analyze(piece.base);
+  check('a base e fechada (sem arestas abertas)', baseMesh.open === 0, 'abertas: ' + baseMesh.open);
+  check('a base nao tem triangulos degenerados', baseMesh.degenerate === 0, String(baseMesh.degenerate));
+  check('a base tem volume positivo', baseMesh.volume > 0, baseMesh.volume.toFixed(1));
+
+  const topMesh = analyze(piece.top);
+  check('o topo e fechado', topMesh.open === 0, 'abertas: ' + topMesh.open);
+  check('o topo tem volume positivo', topMesh.volume > 0, topMesh.volume.toFixed(1));
+  check('o topo e mais fino que a base', piece.top.length > 0);
+
+  const boundsBase = NomesParts.bounds(piece.base);
+  check('o comprimento inclui a borda dos dois lados',
+    Math.abs(boundsBase.size[0] - (piece.width + 2 * params.border)) < 0.02,
+    boundsBase.size[0].toFixed(3));
+  check('o furo atravessa a peca no eixo X', boundsBase.size[0] > 20);
+
+  // --- montagem ---
+  const pieces = ['LIZ', 'A'].map((name) => NomesParts.buildPiece(font.layout(name, 8), params));
+  const together = NomesParts.buildLayout(pieces, NomesParts.params({ mode: 'juntos' }));
+  const separate = NomesParts.buildLayout(pieces, NomesParts.params({ mode: 'separados' }));
+  const both = NomesParts.buildLayout(pieces, NomesParts.params({ mode: 'ambos' }));
+
+  check('juntos: 2 bases + 2 topos', together.base.length > 0 && together.top.length > 0);
+  const togetherBounds = NomesParts.bounds(together.base.concat(together.top));
+  check('juntos: o topo fica acima da base',
+    Math.abs(togetherBounds.size[2] - (piece.height + params.topThickness)) < 0.02,
+    togetherBounds.size[2].toFixed(2));
+
+  const separateBounds = NomesParts.bounds(separate.base.concat(separate.top));
+  check('separados: as pecas ficam lado a lado no eixo Y',
+    separateBounds.size[1] > params.distanceSeparate, separateBounds.size[1].toFixed(1));
+
+  const bothBase = NomesParts.bounds(both.base);
+  check('ambos: duas copias por nome', bothBase.size[1] > 2 * params.distanceBoth, bothBase.size[1].toFixed(1));
+
+  eq('colunas mudam a largura da grade',
+    NomesParts.bounds(NomesParts.buildLayout(pieces, NomesParts.params({ columns: 1 })).base).size[0] <
+    NomesParts.bounds(NomesParts.buildLayout(pieces, NomesParts.params({ columns: 2 })).base).size[0], true);
+
+  // --- STL ---
+  const stl = NomesParts.stlBinary([together.base, together.top]);
+  const stlView = new DataView(stl);
+  const stlTriangles = stlView.getUint32(80, true);
+  eq('STL: tamanho = 84 + 50 * triangulos', stl.byteLength, 84 + stlTriangles * 50);
+  eq('STL: triangulos batem com a malha',
+    stlTriangles, (together.base.length + together.top.length) / 9);
+  const header = new TextDecoder().decode(new Uint8Array(stl, 0, 30));
+  check('STL: cabecalho identifica a extensao', header.startsWith('3D Mesh Downloader'), header);
+  const nx = stlView.getFloat32(84, true);
+  const ny = stlView.getFloat32(88, true);
+  const nz = stlView.getFloat32(92, true);
+  check('STL: normal do primeiro triangulo e unitaria',
+    Math.abs(Math.hypot(nx, ny, nz) - 1) < 1e-4, [nx, ny, nz].join(','));
+
+  // --- .scad ---
+  const scad = NomesParts.scadText(['LIZ', 'A"B'], NomesParts.params({}), 'Chewy');
+  check('scad: lista de nomes', scad.includes('Nomes = ["LIZ", "A\\"B"];'), scad.split('\n')[3]);
+  check('scad: parametros do furo', scad.includes('Hole_Radius_Entrada = 4.5;'));
+  check('scad: usa a fonte escolhida', scad.includes('Font_Name = "Chewy";'));
+  check('scad: fecha o modulo do topo', scad.trim().endsWith('}'));
+}
+
+
 console.log('  ' + passed + ' passed, ' + failed + ' failed');
 if (failures.length) {
   console.log('\n  Falhas:');

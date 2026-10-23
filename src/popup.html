@@ -110,16 +110,16 @@
       position: relative;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
       flex: 1;
       min-width: 0;
-      padding: 7px 8px 8px;
+      padding: 7px 5px 8px;
       border: 0;
       border-radius: 9px 9px 0 0;
       background: var(--strip);
       color: var(--muted);
       font: inherit;
-      font-size: 11.5px;
+      font-size: 11px;
       font-weight: 600;
       cursor: pointer;
       transition: background .12s ease, color .12s ease;
@@ -140,8 +140,8 @@
     .tab[aria-selected="true"]::before { left: -11px; border-top-left-radius: 11px; }
     .tab[aria-selected="true"]::after { right: -11px; border-top-right-radius: 11px; }
     .tico {
-      width: 14px;
-      height: 14px;
+      width: 13px;
+      height: 13px;
       flex: none;
       color: var(--accent);
       opacity: .75;
@@ -359,6 +359,22 @@
       cursor: pointer;
     }
     .excl:hover { border-color: var(--err); color: var(--err); }
+    .field { display: block; }
+    .field > span { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    textarea {
+      width: 100%;
+      min-height: 66px;
+      resize: vertical;
+      font: inherit;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 6px 8px;
+    }
+    textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
     .models label.excluded { opacity: .45; cursor: default; }
     .models label.excluded .mname { text-decoration: line-through; }
     .models label.excluded .excl { border-color: var(--err); color: var(--err); }
@@ -464,7 +480,7 @@
       <path d="M12 17.6v2.9"/>
       <path d="M9.6 18.9 12 21.3 14.4 18.9"/>
     </svg>
-    <h1>3D Mesh Downloader <span id="version">v2.3.1</span></h1>
+    <h1>3D Mesh Downloader <span id="version">v2.4.0</span></h1>
     <button type="button" id="reloadExt" class="icon-btn" title="Atualizar a extensao (rele do disco) e recarregar a pagina">&#8635;</button>
   </header>
 
@@ -505,6 +521,18 @@
         <path d="M4.6 16.2v4.2h14.8v-4.2"/>
       </svg>
       <span class="tlabel">Exportar</span>
+    </button>
+
+    <button type="button" class="tab" id="tab-nomes" role="tab" data-tab="nomes"
+            aria-selected="false" aria-controls="panel-nomes" tabindex="-1"
+            title="Gerador de chaveiros com nomes (abre em uma aba inteira)">
+      <svg class="tico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+        <rect x="3.4" y="5.4" width="17.2" height="13.2" rx="2.2"/>
+        <path d="M7.6 15.3 10.4 8.7l2.8 6.6"/>
+        <path d="M8.6 12.9h3.6"/>
+        <path d="M15.4 8.7v6.6"/>
+      </svg>
+      <span class="tlabel">Nomes</span>
     </button>
   </nav>
 
@@ -634,6 +662,33 @@
       <p class="hint" style="margin:9px 0 0;">
         Cada malha vira <b>um arquivo</b> (STL) ou um <b>.obj + .mtl</b>. Se o Chrome
         perguntar se pode baixar varios arquivos, clique em <b>Permitir</b>.
+      </p>
+    </section>
+
+    <!-- ---------- aba: nomes ---------- -->
+    <section class="panel" id="panel-nomes" role="tabpanel" aria-labelledby="tab-nomes" hidden>
+      <div class="exclude-head">
+        <span>Gerador de chaveiros</span>
+      </div>
+      <p class="hint" style="margin:6px 0 9px;">
+        Monta o chaveiro de <b>duas peças</b> (base rosa com furo cônico + topo branco
+        com o nome vazado) a partir de uma lista de nomes. Tem prévia 3D, parâmetros de
+        furo, borda e espaçamento, e exporta <b>STL</b> pronto para imprimir.
+      </p>
+
+      <label class="field">
+        <span>Nomes (um por linha)</span>
+        <textarea id="nomesQuick" spellcheck="false" placeholder="GABRIEL&#10;PEDRO H.&#10;LIZ"></textarea>
+      </label>
+
+      <div class="actions">
+        <button class="primary" id="openNomes">Abrir gerador de nomes</button>
+        <button class="ghost" id="openNomesWithList">Abrir com esta lista</button>
+      </div>
+
+      <p class="hint" style="margin:9px 0 0;">
+        O gerador abre em uma <b>aba inteira</b> do navegador: a prévia 3D e a exportação
+        STL não cabem no popup.
       </p>
     </section>
   </div>
