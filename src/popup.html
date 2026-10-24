@@ -480,7 +480,7 @@
       <path d="M12 17.6v2.9"/>
       <path d="M9.6 18.9 12 21.3 14.4 18.9"/>
     </svg>
-    <h1>3D Mesh Downloader <span id="version">v2.5.1</span></h1>
+    <h1>3D Mesh Downloader <span id="version">v2.6.0</span></h1>
     <button type="button" id="reloadExt" class="icon-btn" title="Atualizar a extensao (rele do disco) e recarregar a pagina">&#8635;</button>
   </header>
 
@@ -543,6 +543,16 @@
         <path d="M18 15.4 18.8 17l1.6.8-1.6.8-.8 1.6-.8-1.6-1.6-.8 1.6-.8Z"/>
       </svg>
       <span class="tlabel">IA</span>
+    </button>
+
+    <button type="button" class="tab" id="tab-split" role="tab" data-tab="split"
+            aria-selected="false" aria-controls="panel-split" tabindex="-1"
+            title="Divisor de 3MF por paint_color (abre em uma aba inteira)">
+      <svg class="tico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+        <path d="M12 2.8 20 7v9.4l-8 4.2-8-4.2V7Z"/>
+        <path d="M4 7l8 4 8-4M12 11v9.4"/>
+      </svg>
+      <span class="tlabel">3MF</span>
     </button>
   </nav>
 
@@ -721,6 +731,25 @@
       <p class="hint" style="margin:9px 0 0;">
         Usa a API da <b>OpenCode Go</b> (compatível com OpenAI). Cole sua chave em
         <b>Ajustes</b> dentro do estúdio. Modelos marcados com 👁 enxergam as capturas.
+      </p>
+    </section>
+
+    <!-- ---------- aba: 3MF ---------- -->
+    <section class="panel" id="panel-split" role="tabpanel" aria-labelledby="tab-split" hidden>
+      <div class="exclude-head">
+        <span>Separador 3MF por cor</span>
+      </div>
+      <p class="hint" style="margin:6px 0 9px;">
+        Abre um <b>.3mf</b> do Bambu Studio/Creality e separa os triângulos pelo
+        <b>paint_color</b>. Gera um <b>STL único</b> com um solid por grupo (partes
+        separadas) ou arquivos STL/OBJ/PLY por grupo, com prévia 3D e ZIP.
+      </p>
+      <div class="actions">
+        <button class="primary" id="openSplit">Abrir separador 3MF</button>
+      </div>
+      <p class="hint" style="margin:9px 0 0;">
+        Lê o ZIP/XML no próprio navegador, sem Python e sem enviar o arquivo para
+        servidor. Triângulos sem pintura vão para <b>paint_color_0</b>.
       </p>
     </section>
   </div>

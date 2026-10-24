@@ -283,6 +283,27 @@ o furo do seu lado — é o que fecha a ponta direita no diâmetro menor.
 
 ---
 
+## Separador 3MF por cor
+
+A aba **3MF** do popup abre o divisor de modelos multicoloridos. Ele lê o
+`.3mf` do Bambu Studio/Creality **no próprio navegador** — ZIP + XML + geometria,
+sem Python e sem enviar o arquivo para servidor — e separa os triângulos pelo
+atributo `paint_color`, exatamente como o projeto **ColorSplit3mf**:
+
+- triângulos sem pintura vão para `paint_color_0`;
+- o botão **STL único** gera **um arquivo STL ASCII** com um `solid` por grupo —
+  um arquivo só, com as partes separadas (STL não guarda nomes de materiais);
+- cada grupo também pode virar um arquivo `nome_paint_color_N.stl` (ou `.obj`/`.ply`);
+- transformações de `build` e de componentes são aplicadas opcionalmente;
+- cores dos filamentos vêm de `Metadata/project_settings.config` para a prévia;
+- a página mostra prévia 3D, contagem de triângulos, dimensões e permite baixar
+  o STL único, um grupo isolado ou todos juntos em um ZIP.
+
+Não há dependência externa: o leitor ZIP usa `DecompressionStream` do Chrome e
+os writers STL/OBJ/PLY/ZIP são próprios. A implementação é inspirada no
+**ColorSplit3mf** (`D:\Projetos\3dsplit`), mas foi reescrita em JavaScript para
+rodar dentro da extensão, sem `trimesh`/Python.
+
 ## Estúdio IA (criador de geometria)
 
 A aba **IA** abre uma página inteira com **chat à esquerda e ambiente 3D à direita**.

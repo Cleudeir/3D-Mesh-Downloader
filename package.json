@@ -1,6 +1,6 @@
 {
   "name": "3d-mesh-downloader",
-  "version": "2.5.1",
+  "version": "2.6.0",
   "description": "Extensao Chrome que exporta a cena Three.js de qualquer pagina para OBJ (+MTL) ou STL, com normais, UVs, materiais, transformacoes de mundo, filtros e lista de exclusao.",
   "private": false,
   "author": "Cleudeir",
@@ -13,11 +13,12 @@
     "url": "https://github.com/Cleudeir/3D-Mesh-Downloader/issues"
   },
   "scripts": {
-    "test": "node test/run.js && node test/ia.js",
+    "test": "node test/run.js && node test/ia.js && node test/split.js",
     "test:ia": "node test/ia.js",
+    "test:split": "node test/split.js",
     "test:browser": "node tools/serve.js",
     "build": "node tools/build.js",
-    "check": "node --check src/injected.js && node --check src/content.js && node --check src/popup.js && node --check src/background.js && node --check src/ia.js && node --check src/ia/kernel.js && node --check src/ia/render.js && node --check src/ia/api.js && node --check src/ia/agent.js && node --check src/ia/runner.js && node --check src/ia/sandbox.js && node test/run.js && node test/ia.js"
+    "check": "node --check src/injected.js && node --check src/content.js && node --check src/popup.js && node --check src/background.js && node --check src/ia.js && node --check src/ia/kernel.js && node --check src/ia/render.js && node --check src/ia/api.js && node --check src/ia/agent.js && node --check src/ia/runner.js && node --check src/ia/sandbox.js && node --check src/split.js && node --check src/split/3mf.js && node test/run.js && node test/ia.js && node test/split.js"
   },
   "keywords": [
     "threejs",
