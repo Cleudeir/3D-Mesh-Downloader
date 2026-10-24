@@ -271,23 +271,66 @@
     var waiting = [];
     var bootTimer = null;
     var bootError = null;
+    var bootRetries = 0;
+    var bootVersion = 0;
+    var messageBound = false;
+    var visibilityBound = false;
 
-    function init() {
-      if (booted) return;
+    function teardown(reason) {
+      if (bootTimer) {
+        clearTimeout(bootTimer);
+        bootTimer = null;
+      }
+      if (frame) {
+        try { frame.remove(); } catch (e) { /* já saiu */ }
+        frame = null;
+      }
+      ready = false;
+      booted = false;
+      bootError = null;
+      if (reason) failAll(reason);
+    }
+
+    function armBootWatchdog() {
+      if (bootTimer) clearTimeout(bootTimer);
+      bootTimer = setTimeout(function () {
+        bootTimer = null;
+        if (ready) return;
+        bootError = 'o executor de geometria não iniciou. Reiniciando o sandbox...';
+        failAll(bootError);
+        teardown();
+        if (bootRetries < 1) {
+          bootRetries += 1;
+          setTimeout(function () { init(); }, 900);
+        }
+      }, 20000);
+    }
+
+    function init(force) {
+      if (booted && !force) return;
+      if (force) teardown('executor de geometria reiniciado; tente de novo');
       booted = true;
+      ready = false;
+      bootError = null;
       frame = document.createElement('iframe');
-      frame.src = 'ia/sandbox-v2.html?v=' + Date.now().toString(36);
+      frame.src = 'ia/sandbox-v2.html?v=' + Date.now().toString(36) + '-' + (++bootVersion);
       frame.title = 'executor de geometria';
       frame.setAttribute('aria-hidden', 'true');
       frame.style.display = 'none';
-      window.addEventListener('message', onMessage);
+      if (!messageBound) {
+        window.addEventListener('message', onMessage);
+        messageBound = true;
+      }
+      if (!visibilityBound) {
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'visible' && booted && !ready) {
+            init(true);
+          }
+        });
+        visibilityBound = true;
+      }
       document.body.appendChild(frame);
-      bootTimer = setTimeout(function () {
-        if (!ready) {
-          bootError = 'o executor de geometria não iniciou. Recarregue a página.';
-          failAll(bootError);
-        }
-      }, 20000);
+      armBootWatchdog();
     }
 
     function onMessage(event) {
@@ -298,6 +341,7 @@
       if (data.type === 'ready') {
         ready = true;
         bootError = null;
+        bootRetries = 0;
         if (bootTimer) { clearTimeout(bootTimer); bootTimer = null; }
         var queue = waiting;
         waiting = [];
@@ -307,10 +351,15 @@
 
       if (data.type === 'fatal') {
         failAll(data.error || 'falha no executor de geometria');
+        teardown();
         return;
       }
 
-      if (data.type === 'killed') return;
+      if (data.type === 'killed') {
+        ready = false;
+        armBootWatchdog();
+        return;
+      }
 
       if (data.type === 'result') {
         var item = pending.get(data.id);
@@ -367,12 +416,6 @@
             ' s e foi interrompido. Simplifique a geometria (menos segmentos) ou tente outra abordagem.'));
         }, limit);
         pending.set(id, item);
-        if (bootError) {
-          clearTimeout(item.timer);
-          pending.delete(id);
-          reject(new Error(bootError));
-          return;
-        }
         send(item);
       });
     }
