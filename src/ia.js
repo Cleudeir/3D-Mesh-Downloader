@@ -303,7 +303,7 @@
           bootRetries += 1;
           setTimeout(function () { init(); }, 900);
         }
-      }, 20000);
+      }, 60000);
     }
 
     function init(force) {
@@ -376,6 +376,20 @@
         if (!item.queuedAt) item.queuedAt = Date.now();
         return;
       }
+      if (item.started) return;
+      item.started = true;
+      item.timer = setTimeout(function () {
+        if (!pending.has(item.id)) return;
+        pending.delete(item.id);
+        waiting = waiting.filter(function (entry) { return entry.id !== item.id; });
+        if (frame) {
+          frame.contentWindow.postMessage({ channel: 'ia-geometry', type: 'kill' }, '*');
+        }
+        ready = false;
+        armBootWatchdog();
+        item.reject(new Error('o script passou de ' + Math.round(item.limit / 1000) +
+          ' s e foi interrompido. Simplifique a geometria (menos segmentos) ou tente outra abordagem.'));
+      }, item.limit);
       try {
         frame.contentWindow.postMessage({
           channel: 'ia-geometry',
@@ -384,6 +398,9 @@
           code: item.code
         }, '*');
       } catch (e) {
+        clearTimeout(item.timer);
+        item.timer = null;
+        item.started = false;
         item.reject(new Error('não foi possível enviar o script ao executor'));
       }
     }
@@ -403,18 +420,14 @@
       var id = ++seq;
       var limit = Math.max(1000, Number(timeout) || RUN_TIMEOUT);
       return new Promise(function (resolve, reject) {
-        var item = { id: id, code: code, resolve: resolve, reject: reject };
-        item.timer = setTimeout(function () {
-          if (!pending.has(id)) return;
-          pending.delete(id);
-          waiting = waiting.filter(function (entry) { return entry.id !== id; });
-          if (frame) {
-            frame.contentWindow.postMessage({ channel: 'ia-geometry', type: 'kill' }, '*');
-          }
-          ready = false;
-          reject(new Error('o script passou de ' + Math.round(limit / 1000) +
-            ' s e foi interrompido. Simplifique a geometria (menos segmentos) ou tente outra abordagem.'));
-        }, limit);
+        var item = {
+          id: id,
+          code: code,
+          limit: limit,
+          started: false,
+          resolve: resolve,
+          reject: reject
+        };
         pending.set(id, item);
         send(item);
       });
