@@ -18,7 +18,14 @@
 (function () {
   'use strict';
 
-  var VERSION = '2.3.1';
+  // A versao vem do manifest: uma constante fixa aqui envelhece em silencio e
+  // faz o popup acusar (falsamente) que a pagina esta com uma versao antiga.
+  var VERSION = '';
+  try {
+    VERSION = chrome.runtime.getManifest().version;
+  } catch (e) {
+    /* contexto da extensao indisponivel */
+  }
 
   // --- page -> popup -------------------------------------------------------
   var infoWaiters = [];
@@ -31,7 +38,14 @@
     if (!data || typeof data !== 'object') return;
 
     if (data.type === 'MDL_INFO') {
-      chrome.runtime.sendMessage({ type: 'MDL_INFO', info: data.info, version: data.version });
+      // Sempre a versao desta content script: e ela que foi injetada na pagina.
+      // Se a pagina ainda roda uma copia antiga, data.version continua sendo a
+      // versao velha e o aviso de recarregar aparece corretamente.
+      chrome.runtime.sendMessage({
+        type: 'MDL_INFO',
+        info: data.info,
+        version: VERSION || data.version
+      });
       var waiter = infoWaiters.shift();
       if (waiter) waiter(data.info);
     } else if (data.type === 'MDL_RESULT') {
@@ -48,7 +62,7 @@
         resolve(info);
       };
       infoWaiters.push(waiter);
-      window.postMessage({ type: 'MDL_GET_INFO' }, '*');
+      window.postMessage({ type: 'MDL_GET_INFO', version: VERSION }, '*');
       setTimeout(function () {
         if (done) return;
         var i = infoWaiters.indexOf(waiter);
@@ -65,6 +79,7 @@
     if (request.type === 'MDL_GET_INFO') {
       window.postMessage({
         type: 'MDL_GET_INFO',
+        version: VERSION,
         exclude: request.exclude || [],
         excludeExact: request.excludeExact || [],
         excludeSize: request.excludeSize || null,
@@ -75,7 +90,11 @@
     }
 
     if (request.type === 'MDL_DOWNLOAD') {
-      window.postMessage({ type: 'MDL_DOWNLOAD', options: request.options || {} }, '*');
+      window.postMessage({
+        type: 'MDL_DOWNLOAD',
+        version: VERSION,
+        options: request.options || {}
+      }, '*');
       sendResponse({ status: 'downloading' });
       return true;
     }
@@ -153,7 +172,7 @@
     }
 
     if (action === 'info') {
-      window.postMessage({ type: 'MDL_GET_INFO' }, '*');
+      window.postMessage({ type: 'MDL_GET_INFO', version: VERSION }, '*');
       return;
     }
 
@@ -173,7 +192,7 @@
       console.debug('[3D Mesh Downloader] deep link: ' +
         (info && info.count ? info.count + ' malha(s) encontrada(s)' : 'nenhuma malha encontrada') +
         ' - exportando');
-      window.postMessage({ type: 'MDL_DOWNLOAD', options: options }, '*');
+      window.postMessage({ type: 'MDL_DOWNLOAD', version: VERSION, options: options }, '*');
     })();
   }
 

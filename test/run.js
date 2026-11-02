@@ -881,6 +881,66 @@ section('18. Gerador de nomes (fonte, geometria e STL)');
 }
 
 
+// ---------------------------------------------------------------------------
+section('19. Versao sincronizada com a extensao (sem constante fixa)');
+{
+  const { env } = setup();
+
+  const reply = env.request({ type: 'MDL_GET_INFO', version: '9.9.9' })
+    .find((m) => m.type === 'MDL_INFO');
+  eq('a pagina devolve a versao enviada pela content script', reply.version, '9.9.9');
+
+  const out = download(env, {
+    combine: true, applyTransforms: true, normals: 'none', uvs: 'none', materials: 'none'
+  });
+  check('o cabecalho do .obj usa a versao real',
+    out.obj.includes('3D Mesh Downloader v9.9.9'), out.obj.split('\n')[0]);
+}
+{
+  // A content script e quem conhece o manifest; ela nao pode repassar a versao
+  // gravada dentro do injected.js (era assim que a pagina "envelhecia" sozinha).
+  const fs = require('fs');
+  const path = require('path');
+  const vm = require('vm');
+
+  const runtimeMessages = [];
+  const posted = [];
+  const windowListeners = {};
+  let runtimeListener = null;
+
+  const sandbox = {
+    console: { log() {}, warn() {}, error() {}, debug() {} },
+    URLSearchParams,
+    location: { hash: '', href: 'https://example.test/', pathname: '/', search: '' },
+    history: { replaceState() {} },
+    setTimeout,
+    chrome: {
+      runtime: {
+        getManifest: () => ({ version: '2.6.1' }),
+        sendMessage: (message) => runtimeMessages.push(message),
+        onMessage: { addListener: (fn) => { runtimeListener = fn; } }
+      }
+    }
+  };
+  sandbox.window = {
+    addEventListener: (type, fn) => { windowListeners[type] = fn; },
+    postMessage: (message) => posted.push(message)
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'content.js'), 'utf8'), sandbox);
+
+  runtimeListener({ type: 'MDL_GET_INFO', exclude: [] }, {}, () => {});
+  const toPage = posted.find((m) => m.type === 'MDL_GET_INFO');
+  eq('a content script envia a versao do manifest para a pagina', toPage && toPage.version, '2.6.1');
+
+  windowListeners.message({
+    source: sandbox.window,
+    data: { type: 'MDL_INFO', info: { models: [] }, version: '2.3.1' }
+  });
+  const toPopup = runtimeMessages.find((m) => m.type === 'MDL_INFO');
+  eq('e repassa a versao dela, nao a do injected.js', toPopup && toPopup.version, '2.6.1');
+}
+
 console.log('  ' + passed + ' passed, ' + failed + ' failed');
 if (failures.length) {
   console.log('\n  Falhas:');

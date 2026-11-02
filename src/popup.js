@@ -58,6 +58,11 @@
 
   var ACTIVE_TAB_KEY = 'popupTab';
 
+  // Versao sempre lida do manifest: nada de copia fixa no HTML/JS.
+  var extensionVersion = '';
+  try { extensionVersion = chrome.runtime.getManifest().version; } catch (e) { /* sem manifest */ }
+  if (extensionVersion && els.version) els.version.textContent = 'v' + extensionVersion;
+
   var models = [];            // descriptors coming from the page
   var selection = new Set();  // ids the user wants to export
   var excludePatterns = [];   // lista por nome (curingas)
@@ -849,8 +854,6 @@
     if (request.type === 'MDL_INFO') {
       if (request.version) {
         els.version.textContent = 'v' + request.version;
-        var extensionVersion = '';
-        try { extensionVersion = chrome.runtime.getManifest().version; } catch (e) { /* sem manifest */ }
         // A pagina guarda a copia do content script injetada quando ela carregou.
         // Se a extensao foi recarregada depois, a pagina continua rodando a
         // versao antiga (e ignora recursos novos, como a regra de tamanho).
