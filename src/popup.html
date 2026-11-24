@@ -740,12 +740,17 @@
         <span>Separador 3MF por cor</span>
       </div>
       <p class="hint" style="margin:6px 0 9px;">
-        Abre um <b>.3mf</b> do Bambu Studio/Creality e separa os triângulos pelo
-        <b>paint_color</b>. Gera um <b>STL único</b> com um solid por grupo (partes
-        separadas) ou arquivos STL/OBJ/PLY por grupo, com prévia 3D e ZIP.
+        Abre um <b>.3mf</b> do Bambu Studio/Creality e separa os triângulos por cor:
+        <b>paint_color</b> por triângulo e <b>extruder</b> por peça. Gera um
+        <b>STL único</b> com um solid por cor (partes separadas) ou arquivos
+        STL/OBJ/PLY por cor, com prévia 3D e ZIP.
       </p>
       <div class="actions">
         <button class="primary" id="openSplit">Abrir separador 3MF</button>
+        <button class="ghost" id="openConvert"
+                title="Converte .glb/.gltf/.obj/.stl do seu disco para .3mf com uma cor por peca">
+          Conversor local para 3MF
+        </button>
       </div>
       <p class="hint" style="margin:9px 0 0;">
         Lê o ZIP/XML no próprio navegador, sem Python e sem enviar o arquivo para

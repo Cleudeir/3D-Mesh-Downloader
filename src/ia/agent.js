@@ -71,10 +71,46 @@
     {
       type: 'function',
       function: {
+        name: 'llama_mesh',
+        description: 'Gera um rascunho 3D low-poly com o LLaMA-Mesh local (text-to-3D) a partir de um prompt ' +
+          'em inglês. Chame automaticamente no início de qualquer objeto novo com mais de uma parte ou detalhe ' +
+          '(móveis, caixas com portas, criaturas, veículos), sem esperar o usuário pedir, para acertar silhueta, ' +
+          'proporções e volumes principais. Para corrigir o rascunho, chame com fix:true e feedback: a correção ' +
+          'é feita pelo LLaMA-Mesh, não pelo agente. O rascunho aparece como contorno na ' +
+          'tela e NÃO entra no STL final: use-o como alvo e reconstrua a peça com run_geometry, parte por parte. ' +
+          'Se o servidor local estiver desligado, a ferramenta falha — siga sem ela e use search_reference/run_geometry.',
+        parameters: {
+          type: 'object',
+          properties: {
+            prompt: {
+              type: 'string',
+              description: 'Descrição curta em inglês, ex.: "a low poly dragon statue" ou "a wooden hammer".'
+            },
+            name: { type: 'string', description: 'Nome curto do rascunho (ex.: "Dragão").' },
+            size_mm: {
+              type: 'number',
+              description: 'Maior dimensão do rascunho em mm (padrão 60). O rascunho é só referência.'
+            },
+            fix: {
+              type: 'boolean',
+              description: 'true para pedir ao LLaMA-Mesh que corrija o rascunho atual (peça solta, malha aberta, furo faltando).'
+            },
+            feedback: {
+              type: 'string',
+              description: 'Problemas a corrigir no rascunho, em uma frase. Use junto com fix:true.'
+            }
+          },
+          required: ['prompt']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
         name: 'plan_parts',
-        description: 'Registra o plano de decomposição de um objeto complexo em partes. Chame antes de construir ' +
-          'e use os mesmos nomes nas partes do script e no argumento "focus" de run_geometry. ' +
-          'O plano aparece na interface e guia a construção por partes.',
+        description: 'Registra o plano de decomposição de um objeto em partes. Chame automaticamente quando houver ' +
+          'mais de uma parte funcional, sem esperar o usuário pedir, e use os mesmos nomes nas partes do script ' +
+          'e no argumento "focus" de run_geometry. O plano aparece na interface e guia a construção por partes.',
         parameters: {
           type: 'object',
           properties: {
@@ -123,29 +159,6 @@
     {
       type: 'function',
       function: {
-        name: 'list_objects',
-        description: 'Lista os objetos já criados (memória do estúdio), com nome, descrição e medidas.',
-        parameters: { type: 'object', properties: {} }
-      }
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'load_object',
-        description: 'Lê o script e as medidas de um objeto da biblioteca (somente leitura; não troca a conversa atual). ' +
-          'Use para reaproveitar ou adaptar uma solução já criada.',
-        parameters: {
-          type: 'object',
-          properties: {
-            id: { type: 'string', description: 'ID do objeto retornado por list_objects.' }
-          },
-          required: ['id']
-        }
-      }
-    },
-    {
-      type: 'function',
-      function: {
         name: 'save_object',
         description: 'Atualiza nome, descrição e anotações do objeto atual na biblioteca.',
         parameters: {
@@ -155,21 +168,6 @@
             description: { type: 'string' },
             notes: { type: 'string' }
           }
-        }
-      }
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'save_memory',
-        description: 'Guarda uma preferência ou convenção do usuário para os próximos objetos ' +
-          '(ex.: "paredes de 1,6 mm", "furos sempre com 0,3 mm de folga").',
-        parameters: {
-          type: 'object',
-          properties: {
-            note: { type: 'string', description: 'Uma frase curta.' }
-          },
-          required: ['note']
         }
       }
     }
@@ -187,6 +185,24 @@
       '- O laudo visual é a verdade sobre a forma; as medidas são a verdade sobre o tamanho. Confira as duas.',
       '- Você não recebe as imagens: um inspetor multimodal barato olha as capturas e escreve o laudo. ' +
         'Se precisar de outro ângulo, chame capture_views.',
+      '- PIPELINE AUTOMÁTICO: o usuário só descreve a peça. Você decide sozinho as ferramentas e a',
+      '  decomposição. Nunca peça para o usuário dizer "use llama_mesh", "separe em partes" ou',
+      '  informar quais ferramentas usar.',
+      '- REGRA PADRÃO: em todo objeto novo que tenha mais de uma parte funcional ou qualquer detalhe',
+      '  (móveis como guarda-roupa, caixas com portas/gavetas, veículos, criaturas, vasos, personagens),',
+      '  chame search_reference e llama_mesh automaticamente, ANTES de plan_parts, mesmo que o usuário',
+      '  não peça. Depois chame plan_parts e construa uma parte por vez com run_geometry + focus.',
+      '- Só pule o llama_mesh quando o pedido for um único primitivo simples, sem partes (ex.:',
+      '  "um cubo de 20 mm com um furo"). Se houver portas, gavetas, tampa, pés ou qualquer detalhe,',
+      '  o rascunho é obrigatório e a decomposição em partes também.',
+      '- O pipeline pode gerar o rascunho automaticamente ANTES da sua primeira resposta. Se o contexto',
+      '  já trouxer "Rascunho LLaMA-Mesh já gerado automaticamente", NÃO chame llama_mesh de novo:',
+      '  use esse rascunho como alvo e siga direto para plan_parts/run_geometry.',
+      '- A CORREÇÃO do rascunho é feita pelo LLaMA-Mesh, não por você. Se o rascunho vier aberto, com',
+      '  peça solta, furo faltando ou forma errada, chame llama_mesh com fix:true e feedback; NÃO tente',
+      '  consertar a malha bruta com run_geometry. Use run_geometry para a reconstrução paramétrica',
+      '  printável, que é uma etapa separada.',
+      '- O usuário NUNCA precisa pedir o rascunho nem a divisão em partes: isso é o padrão do pipeline.',
       '- Peças para FDM: paredes >= 1,2 mm, fundo >= 1,2 mm, folgas de 0,3 mm entre peças móveis, ' +
         'evite balanços acima de 60°, mantenha a base plana. Furos pequenos: >= 1,5 mm.',
       '- Prefira peças úteis e bem proporcionadas. Arredonde cantos que serão tocados.',
@@ -198,10 +214,17 @@
       '  compor 5 a 20 formas. Detalhes pequenos (olhos, garras, anéis) podem ser peças separadas.',
       '- Use .union quando precisar de um sólido único; .merge para juntar detalhes decorativos sem',
       '  pagar o custo das booleanas (as cascas podem se sobrepor, o fatiador resolve).',
-      '- Objetos complexos: antes do primeiro script, chame plan_parts com 4 a 8 partes.',
+      '- Sempre que houver mais de uma parte funcional, chame plan_parts automaticamente com 4 a 8 partes.',
       '- Antes de começar um objeto novo/complexo, chame search_reference com uma consulta curta em inglês',
       '  (ex.: "kettlebell jewelry box", "dragon statue") e use o laudo visual para silhueta e proporções.',
       '  Uma referência por objeto; não repita a busca a cada iteração.',
+      '- Para objetos de forma não trivial, chame llama_mesh automaticamente ANTES de plan_parts,',
+      '  sem esperar o usuário pedir, com um prompt curto em inglês. O rascunho low-poly aparece como',
+      '  contorno e NÃO entra no STL: ele serve de alvo visual para silhueta, proporções e volumes principais.',
+      '  Depois reconstrua com run_geometry, parte por parte, usando o mesmo plano. Não peça ao',
+      '  LLaMA-Mesh para "consertar" topologia e não copie a malha bruta: ela pode estar aberta.',
+      '  No máximo um rascunho por objeto, a menos que o usuário peça outra variação.',
+      '  Se a ferramenta falhar (servidor local desligado), não insista: siga com search_reference.',
       '- Peças que devem ser removíveis/roscadas/encaixadas (tampa, gaveta, articulação) precisam de',
       '  removable: true na parte. O pipeline não cria pino entre elas; a rosca/encaixe é o único vínculo.',
       '- Construa por partes: cada parte lógica é um item separado em parts, com o mesmo nome do plano.',
@@ -223,7 +246,7 @@
       '  nos nomes e descrições das peças e no resumo final. Nunca responda em inglês.',
       '- Resumo curto no fim: o que fez, medidas finais e avisos.',
       '- Se o pedido for ambíguo, escolha uma interpretação razoável e diga qual foi, em vez de parar para perguntar.',
-      '- A biblioteca de objetos é sua memória. Reaproveite scripts com load_object quando fizer sentido.',
+      '- Você trabalha somente com o objeto atual. NÃO leia, copie ou use outros objetos da biblioteca como referência.',
       '',
       '## API do kernel (JavaScript, tudo em mm)',
       'Primitivas (centradas na origem):',
@@ -297,6 +320,16 @@
       '## Estado atual do estúdio',
       context || '(sem objeto)'
     ].join('\n');
+  }
+
+  /** O LLaMA-Mesh só aparece para o modelo quando está configurado. */
+  function availableTools(config) {
+    if (config && config.meshEnabled === false) {
+      return TOOLS.filter(function (tool) {
+        return !(tool.function && tool.function.name === 'llama_mesh');
+      });
+    }
+    return TOOLS;
   }
 
   function create(host, apiOverride) {
@@ -408,30 +441,9 @@
           return toolResult(call.name, args, { text: info.text, stats: info.stats });
         }
 
-        if (call.name === 'list_objects') {
-          var objects = await host.listObjects();
-          return toolResult(call.name, args, { text: objects });
-        }
-
-        if (call.name === 'load_object') {
-          if (!args.id) return toolResult(call.name, args, { error: 'faltou "id"' });
-          emit('status', { phase: 'load', label: 'carregando objeto' });
-          var loaded = await host.loadObject(args.id);
-          return toolResult(call.name, args, {
-            text: loaded && loaded.text ? loaded.text : String(loaded || ''),
-            stats: loaded && loaded.stats ? loaded.stats : null
-          });
-        }
-
         if (call.name === 'save_object') {
           var saved = await host.saveObject(args);
           return toolResult(call.name, args, { text: saved });
-        }
-
-        if (call.name === 'save_memory') {
-          if (!args.note) return toolResult(call.name, args, { error: 'faltou "note"' });
-          var memory = await host.saveMemory(args.note);
-          return toolResult(call.name, args, { text: memory });
         }
 
         if (call.name === 'search_reference') {
@@ -442,6 +454,24 @@
             text: reference.text,
             images: reference.images,
             report: reference.report
+          });
+        }
+
+        if (call.name === 'llama_mesh') {
+          if (!args.prompt) return toolResult(call.name, args, { error: 'faltou o campo "prompt"' });
+          emit('status', { phase: 'draft', label: 'gerando rascunho com LLaMA-Mesh' });
+          var draft = await host.llamaMesh(String(args.prompt), {
+            name: args.name,
+            sizeMm: args.size_mm,
+            fix: args.fix === true,
+            feedback: args.feedback
+          });
+          return toolResult(call.name, args, {
+            text: draft.text,
+            detail: draft.text,
+            stats: draft.stats,
+            images: draft.images,
+            report: draft.report
           });
         }
 
@@ -525,7 +555,7 @@
             apiKey: config.apiKey,
             model: config.model,
             messages: messages,
-            tools: TOOLS,
+            tools: availableTools(config),
             signal: controller.signal,
             sessionId: config.sessionId || 'studio-geometria',
             timeout: config.timeout || 300000,
@@ -592,10 +622,10 @@
     function labelFor(name) {
       if (name === 'run_geometry') return 'executando geometria';
       if (name === 'capture_views') return 'tirando capturas';
-      if (name === 'load_object') return 'lendo objeto';
       if (name === 'inspect_geometry') return 'medindo';
       if (name === 'plan_parts') return 'planejando as partes';
       if (name === 'search_reference') return 'buscando referência';
+      if (name === 'llama_mesh') return 'gerando rascunho 3D';
       return 'usando ' + name;
     }
 

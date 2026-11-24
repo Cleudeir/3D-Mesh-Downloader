@@ -27,6 +27,8 @@
     options = options || {};
     var ctx = canvas.getContext('2d', { alpha: false });
     var parts = [];
+    // Rascunho do LLaMA-Mesh: contorno atrás do modelo, nunca entra no STL.
+    var reference = [];
     var view = {
       yaw: VIEWS.perspective.yaw,
       pitch: VIEWS.perspective.pitch,
@@ -43,6 +45,18 @@
     var scheduled = false;
     var showGrid = options.grid !== false;
     var showAxes = options.axes !== false;
+    // Durante o arraste/zoom a cena é desenhada numa resolução menor e
+    // ampliada; ao soltar, volta a desenhar em cheio. Malhas densas (centenas
+    // de milhares de triângulos) continuam respondendo ao mouse.
+    var liveImage = null;
+    var liveDepth = null;
+    var liveWidth = 0;
+    var liveHeight = 0;
+    var quality = 1;
+    var qualityScale = 0.55;
+    var qualityTimer = 0;
+    var lowResCanvas = null;
+    var lowResCtx = null;
     var back = [244, 246, 250];
     var back2 = [232, 236, 244];
 
@@ -51,11 +65,32 @@
       back2 = options.background[1];
     }
 
-    function setModel(nextParts) {
-      parts = (nextParts || []).filter(function (p) { return p && p.positions && p.positions.length; });
+    function countTriangles() {
       triangleCount = 0;
       parts.forEach(function (part) { triangleCount += part.positions.length / 9; });
+      reference.forEach(function (part) { triangleCount += part.positions.length / 9; });
+    }
+
+    function setModel(nextParts) {
+      parts = (nextParts || []).filter(function (p) { return p && p.positions && p.positions.length; });
+      countTriangles();
+      if (quality !== 1) {
+        quality = 1;
+        if (qualityTimer) {
+          window.clearTimeout(qualityTimer);
+          qualityTimer = 0;
+        }
+      }
       resize();
+      fit();
+      schedule();
+    }
+
+    function setReference(nextParts) {
+      reference = (nextParts || []).filter(function (p) {
+        return p && ((p.positions && p.positions.length) || (p.points && p.points.length));
+      });
+      countTriangles();
       fit();
       schedule();
     }
@@ -63,8 +98,9 @@
     function fit() {
       var min = [Infinity, Infinity, Infinity];
       var max = [-Infinity, -Infinity, -Infinity];
-      parts.forEach(function (part) {
-        var p = part.positions;
+      parts.concat(reference).forEach(function (part) {
+        var p = part.positions || part.points;
+        if (!p) return;
         for (var i = 0; i < p.length; i += 3) {
           for (var k = 0; k < 3; k++) {
             var value = p[i + k];
@@ -177,6 +213,8 @@
         height = nextH;
         canvas.width = width;
         canvas.height = height;
+        liveImage = null;
+        liveDepth = null;
         updateFraming();
       }
     }
@@ -191,15 +229,56 @@
       });
     }
 
+    function lowerQuality() {
+      if (triangleCount < 120000) return;
+      if (quality !== qualityScale) {
+        quality = qualityScale;
+        schedule();
+      }
+      if (qualityTimer) window.clearTimeout(qualityTimer);
+      qualityTimer = window.setTimeout(restoreQuality, 220);
+    }
+
+    function restoreQuality() {
+      if (qualityTimer) {
+        window.clearTimeout(qualityTimer);
+        qualityTimer = 0;
+      }
+      if (quality === 1) return;
+      quality = 1;
+      schedule();
+    }
+
     function drawLive() {
       if (!width || !height) resize();
-      var image = ctx.createImageData(width, height);
-      var depth = new Float32Array(width * height);
-      paintScene(image, depth, width, height, camera(), {
+      var w = Math.max(1, Math.round(width * quality));
+      var h = Math.max(1, Math.round(height * quality));
+      if (!liveImage || liveWidth !== w || liveHeight !== h) {
+        liveWidth = w;
+        liveHeight = h;
+        liveImage = ctx.createImageData(w, h);
+        liveDepth = new Float32Array(w * h);
+      }
+      paintScene(liveImage, liveDepth, w, h, camera(), {
         grid: showGrid,
-        axes: showAxes
+        axes: showAxes,
+        reference: true
       });
-      ctx.putImageData(image, 0, 0);
+      if (w === width && h === height) {
+        ctx.putImageData(liveImage, 0, 0);
+        return;
+      }
+      if (!lowResCanvas) {
+        lowResCanvas = document.createElement('canvas');
+        lowResCtx = lowResCanvas.getContext('2d');
+      }
+      if (lowResCanvas.width !== w || lowResCanvas.height !== h) {
+        lowResCanvas.width = w;
+        lowResCanvas.height = h;
+      }
+      lowResCtx.putImageData(liveImage, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(lowResCanvas, 0, 0, w, h, 0, 0, width, height);
     }
 
     function camera() {
@@ -234,6 +313,41 @@
       var cx = w / 2;
       var cy = h / 2;
       var orthoScale = cam.scale;
+      var ortho = cam.ortho;
+
+      // Base da câmera em variáveis locais: o laço de triângulos não cria
+      // arrays nem objetos por triângulo.
+      var fx = cam.basis.forward[0], fy = cam.basis.forward[1], fz = cam.basis.forward[2];
+      var rx = cam.basis.right[0], ry = cam.basis.right[1], rz = cam.basis.right[2];
+      var ux = cam.basis.up[0], uy = cam.basis.up[1], uz = cam.basis.up[2];
+      var ex = cam.eye[0], ey = cam.eye[1], ez = cam.eye[2];
+      var pa = [0, 0, 0], pb = [0, 0, 0], pc = [0, 0, 0];
+
+      function projectInto(x, y, z, out) {
+        var dx = x - ex, dy = y - ey, dz = z - ez;
+        var depthValue = dx * fx + dy * fy + dz * fz;
+        var right = dx * rx + dy * ry + dz * rz;
+        var up = dx * ux + dy * uy + dz * uz;
+        if (ortho) {
+          out[0] = cx + right * orthoScale;
+          out[1] = cy - up * orthoScale;
+          out[2] = depthValue;
+          out[3] = 1;
+        } else if (depthValue < 0.05) {
+          out[3] = 0;
+        } else {
+          out[0] = cx + right / depthValue * scaleFactor;
+          out[1] = cy - up / depthValue * scaleFactor;
+          out[2] = depthValue;
+          out[3] = 1;
+        }
+      }
+
+      // O rascunho é um contorno atrás do modelo: desenha antes e não escreve
+      // no z-buffer, então as peças paramétricas sempre ficam na frente dele.
+      if (opts && opts.reference) {
+        paintReference(data, w, h, cam, cx, cy, scaleFactor, orthoScale);
+      }
 
       parts.forEach(function (part) {
         var color = hexToRgb(part.color || '#5b6cff');
@@ -244,26 +358,26 @@
           var bx = positions[i + 3], by = positions[i + 4], bz = positions[i + 5];
           var gx = positions[i + 6], gy = positions[i + 7], gz = positions[i + 8];
 
-          var ux = bx - ax, uy = by - ay, uz = bz - az;
-          var vx = gx - ax, vy = gy - ay, vz = gz - az;
-          var nx = uy * vz - uz * vy;
-          var ny = uz * vx - ux * vz;
-          var nz = ux * vy - uy * vx;
+          var vx = bx - ax, vy = by - ay, vz = bz - az;
+          var wx = gx - ax, wy = gy - ay, wz = gz - az;
+          var nx = vy * wz - vz * wy;
+          var ny = vz * wx - vx * wz;
+          var nz = vx * wy - vy * wx;
           var nlen = Math.sqrt(nx * nx + ny * ny + nz * nz);
           if (nlen < 1e-10) continue;
           nx /= nlen; ny /= nlen; nz /= nlen;
 
-          if (cam.ortho) {
-            if (nx * cam.basis.forward[0] + ny * cam.basis.forward[1] + nz * cam.basis.forward[2] > 0) continue;
+          if (ortho) {
+            if (nx * fx + ny * fy + nz * fz > 0) continue;
           } else {
-            var dx0 = ax - cam.eye[0], dy0 = ay - cam.eye[1], dz0 = az - cam.eye[2];
+            var dx0 = ax - ex, dy0 = ay - ey, dz0 = az - ez;
             if (nx * dx0 + ny * dy0 + nz * dz0 > 0) continue;
           }
 
-          var pa = project(ax, ay, az, cam, cx, cy, scaleFactor, orthoScale);
-          var pb = project(bx, by, bz, cam, cx, cy, scaleFactor, orthoScale);
-          var pc = project(gx, gy, gz, cam, cx, cy, scaleFactor, orthoScale);
-          if (!pa || !pb || !pc) continue;
+          projectInto(ax, ay, az, pa);
+          projectInto(bx, by, bz, pb);
+          projectInto(gx, gy, gz, pc);
+          if (!pa[3] || !pb[3] || !pc[3]) continue;
 
           var minX = Math.max(0, Math.floor(Math.min(pa[0], pb[0], pc[0])));
           var maxX = Math.min(w - 1, Math.ceil(Math.max(pa[0], pb[0], pc[0])));
@@ -312,6 +426,61 @@
 
       if (opts && opts.grid) paintGrid(data, depth, w, h, cam, cx, cy, scaleFactor, orthoScale);
       if (opts && opts.axes) paintAxes(data, w, h, cam);
+    }
+
+    function paintReference(data, w, h, cam, cx, cy, scaleFactor, orthoScale) {
+      reference.forEach(function (part) {
+        var color = hexToRgb(part.color || '#6f5cff');
+
+        // Antes das faces, o LLaMA-Mesh só emitiu vértices: mostra a nuvem
+        // de pontos para o rascunho não ficar invisível durante o streaming.
+        if (part.points && part.points.length) {
+          var points = part.points;
+          for (var pi = 0; pi < points.length; pi += 3) {
+            var pp = project(points[pi], points[pi + 1], points[pi + 2],
+              cam, cx, cy, scaleFactor, orthoScale);
+            if (!pp) continue;
+            var px = Math.round(pp[0]);
+            var py = Math.round(pp[1]);
+            blend(data, w, h, px, py, color, 0.8);
+            blend(data, w, h, px + 1, py, color, 0.45);
+            blend(data, w, h, px, py + 1, color, 0.45);
+          }
+        }
+
+        var positions = part.positions;
+        if (!positions || !positions.length) return;
+        for (var i = 0; i < positions.length; i += 9) {
+          var pa = project(positions[i], positions[i + 1], positions[i + 2],
+            cam, cx, cy, scaleFactor, orthoScale);
+          var pb = project(positions[i + 3], positions[i + 4], positions[i + 5],
+            cam, cx, cy, scaleFactor, orthoScale);
+          var pc = project(positions[i + 6], positions[i + 7], positions[i + 8],
+            cam, cx, cy, scaleFactor, orthoScale);
+          if (!pa || !pb || !pc) continue;
+          line(data, w, h, pa[0], pa[1], pb[0], pb[1], color, 0.42);
+          line(data, w, h, pb[0], pb[1], pc[0], pc[1], color, 0.42);
+          line(data, w, h, pc[0], pc[1], pa[0], pa[1], color, 0.42);
+        }
+      });
+    }
+
+    function line(data, w, h, x0, y0, x1, y1, color, alpha) {
+      var dx = x1 - x0;
+      var dy = y1 - y0;
+      var steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
+      for (var i = 0; i <= steps; i++) {
+        var t = i / steps;
+        blend(data, w, h, Math.round(x0 + dx * t), Math.round(y0 + dy * t), color, alpha);
+      }
+    }
+
+    function blend(data, w, h, x, y, color, alpha) {
+      if (x < 0 || y < 0 || x >= w || y >= h) return;
+      var offset = (y * w + x) * 4;
+      data[offset] = Math.round(data[offset] * (1 - alpha) + color[0] * alpha);
+      data[offset + 1] = Math.round(data[offset + 1] * (1 - alpha) + color[1] * alpha);
+      data[offset + 2] = Math.round(data[offset + 2] * (1 - alpha) + color[2] * alpha);
     }
 
     function paintBackground(data, w, h) {
@@ -439,7 +608,11 @@
         var cam = camera();
         var image = snapCtx.createImageData(w, h);
         var depth = new Float32Array(w * h);
-        paintScene(image, depth, w, h, cam, { grid: !!opts.grid, axes: false });
+        paintScene(image, depth, w, h, cam, {
+          grid: !!opts.grid,
+          axes: false,
+          reference: !!opts.reference
+        });
         snapCtx.putImageData(image, 0, 0);
         out.push({
           view: name,
@@ -489,10 +662,14 @@
       }
       if (view.pitch > limit) view.pitch = limit;
       if (view.pitch < -limit) view.pitch = -limit;
+      lowerQuality();
       schedule();
     });
 
-    function endDrag() { dragging = false; }
+    function endDrag() {
+      dragging = false;
+      restoreQuality();
+    }
     canvas.addEventListener('pointerup', endDrag);
     canvas.addEventListener('pointercancel', endDrag);
     canvas.addEventListener('pointerleave', function () { if (dragging) endDrag(); });
@@ -501,6 +678,7 @@
       event.preventDefault();
       view.zoom *= Math.exp(event.deltaY * 0.0012);
       view.zoom = Math.max(0.25, Math.min(4, view.zoom));
+      lowerQuality();
       schedule();
     }, { passive: false });
 
@@ -516,12 +694,14 @@
 
     return {
       setModel: setModel,
+      setReference: setReference,
       setView: setView,
       resetView: resetView,
       snapshot: snapshot,
       redraw: schedule,
       getView: function () { return view; },
       getParts: function () { return parts; },
+      getReference: function () { return reference; },
       debug: function () {
         return { view: view, bbox: bbox, camera: camera(), width: width, height: height };
       }

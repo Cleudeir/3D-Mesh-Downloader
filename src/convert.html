@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conversor 3MF - 3D Mesh Downloader</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --text: #1f2430;
+      --muted: #6b7280;
+      --line: #e4e7ee;
+      --accent: #5b6cff;
+      --accent-soft: #eef0ff;
+      --ok: #16a34a;
+      --err: #dc2626;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #14161c;
+        --card: #1c1f27;
+        --text: #e8eaf0;
+        --muted: #9aa2b1;
+        --line: #2b303c;
+        --accent-soft: #232841;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    [hidden] { display: none !important; }
+    body {
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, sans-serif;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 20px 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--card);
+    }
+    header svg { width: 24px; height: 24px; flex: none; color: var(--accent); }
+    header h1 { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+    header .sub { display: block; font-size: 11.5px; color: var(--muted); font-weight: 400; }
+    header .spacer { flex: 1; }
+    header a {
+      color: var(--muted);
+      font-size: 12px;
+      text-decoration: none;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      white-space: nowrap;
+    }
+    header a:hover { color: var(--accent); border-color: var(--accent); }
+
+    main {
+      display: grid;
+      grid-template-columns: 340px minmax(0, 1fr);
+      gap: 16px;
+      padding: 16px 20px 20px;
+      align-items: start;
+    }
+    @media (max-width: 940px) {
+      main { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .panel + .panel { margin-top: 12px; }
+    .panel h2 {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel h2 .count {
+      margin-left: auto;
+      letter-spacing: 0;
+      text-transform: none;
+      font-weight: 500;
+      color: var(--muted);
+    }
+
+    label.field { display: block; margin-bottom: 9px; }
+    label.field > span { display: block; font-size: 11.5px; color: var(--muted); margin-bottom: 3px; }
+    input, select, button { font: inherit; }
+    input[type="text"], input[type="number"], select {
+      width: 100%;
+      font-size: 12.5px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 7px 8px;
+    }
+    input:focus, select:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: -1px;
+    }
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    .hint { color: var(--muted); font-size: 11px; margin-top: 6px; }
+    .hint b { color: var(--text); font-weight: 600; }
+
+    .buttons { display: grid; gap: 8px; }
+    button {
+      width: 100%;
+      padding: 10px 12px;
+      border: 0;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: filter .15s ease;
+      text-align: center;
+    }
+    button.primary { background: var(--accent); color: #fff; }
+    button.primary:hover { filter: brightness(1.08); }
+    button.ghost {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--line);
+      font-weight: 500;
+    }
+    button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+    button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+
+    /* ---------- dropzone ---------- */
+    .drop {
+      border: 1.5px dashed var(--line);
+      border-radius: 10px;
+      padding: 18px 12px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      transition: border-color .15s ease, background .15s ease;
+    }
+    .drop strong { display: block; color: var(--text); font-size: 12.5px; margin-bottom: 2px; }
+    .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+    .drop + .buttons { margin-top: 10px; }
+
+    .file-name {
+      margin-top: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .file-meta { font-size: 11px; color: var(--muted); }
+
+    /* ---------- lista de pecas ---------- */
+    .parts { max-height: 280px; overflow-y: auto; margin: 0 -4px; }
+    .part {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 4px;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .part:hover { background: var(--bg); }
+    .part input[type="color"] {
+      flex: none;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: none;
+      cursor: pointer;
+    }
+    .part input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+    .part input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 4px; }
+    .part .name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .part .tris { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11.5px;
+      color: var(--muted);
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    .check input { accent-color: var(--accent); }
+
+    /* ---------- palco ---------- */
+    .stage {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 560px;
+    }
+    .stage-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .stage-head h2 {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0;
+    }
+    .views { display: flex; gap: 6px; margin-left: auto; }
+    .views button {
+      width: auto;
+      padding: 5px 10px;
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--muted);
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+    .views button:hover { color: var(--accent); border-color: var(--accent); }
+
+    .canvas-wrap {
+      position: relative;
+      flex: 1;
+      min-height: 460px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background:
+        radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--card) 30%, var(--bg)) 0%, var(--bg) 70%);
+    }
+    #preview {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 460px;
+      touch-action: none;
+      cursor: grab;
+    }
+    #preview:active { cursor: grabbing; }
+    .empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 24px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      pointer-events: none;
+    }
+    .empty svg { width: 36px; height: 36px; opacity: .5; }
+    .empty b { color: var(--text); }
+
+    .stage-foot {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      font-size: 11.5px;
+      color: var(--muted);
+    }
+    .stage-foot b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+    .status {
+      display: none;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      border: 1px solid transparent;
+      white-space: pre-wrap;
+    }
+    .status.show { display: block; }
+    .status.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+    .status.err { background: color-mix(in srgb, var(--err) 14%, transparent); border-color: color-mix(in srgb, var(--err) 35%, transparent); }
+    .status.info { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+    .spin {
+      display: inline-block; width: 12px; height: 12px;
+      border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+      border-top-color: currentColor;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: -2px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+      <path d="M12 2.8 20 7v9.4l-8 4.2-8-4.2V7Z"/>
+      <path d="M4 7l8 4 8-4M12 11v9.4"/>
+    </svg>
+    <div>
+      <h1>Conversor 3MF
+        <span class="sub">glTF/GLB, OBJ e STL para .3mf com uma cor por peça (mm, Z para cima)</span>
+      </h1>
+    </div>
+    <div class="spacer"></div>
+    <a href="https://github.com/Cleudeir/3D-Mesh-Downloader" target="_blank" rel="noreferrer">3D Mesh Downloader</a>
+  </header>
+
+  <main>
+    <aside>
+      <section class="panel">
+        <h2>Arquivo</h2>
+        <div class="drop" id="drop">
+          <strong>Solte o arquivo aqui</strong>
+          .glb &middot; .gltf (+ .bin) &middot; .obj (+ .mtl) &middot; .stl &middot; .zip com glTF
+        </div>
+        <div class="buttons">
+          <button type="button" class="primary" id="pick">Escolher arquivo</button>
+        </div>
+        <input type="file" id="file" multiple hidden
+               accept=".glb,.gltf,.obj,.stl,.mtl,.bin,.zip,model/gltf-binary,model/gltf+json,model/obj,model/stl,application/zip">
+        <div id="fileInfo" hidden>
+          <div class="file-name" id="fileName"></div>
+          <div class="file-meta" id="fileMeta"></div>
+        </div>
+        <p class="hint" id="warnings"></p>
+      </section>
+
+      <div class="status" id="status"></div>
+
+      <section class="panel" id="partsPanel" hidden>
+        <h2>Peças e cores <span class="count" id="partsCount"></span></h2>
+        <div class="parts" id="parts"></div>
+        <p class="hint">A cor de cada peça vira uma cor do 3MF (<code>basematerials</code>). Textura não vira cor: o 3MF core não carrega textura.</p>
+      </section>
+
+      <section class="panel" id="exportPanel" hidden>
+        <h2>Exportar</h2>
+        <div class="grid2">
+          <label class="field">
+            <span>Escala (mm / unidade)</span>
+            <input type="number" id="scale" step="any" min="0.000001" value="1">
+          </label>
+          <label class="field">
+            <span>Altura alvo (mm)</span>
+            <input type="number" id="targetHeight" step="1" min="0" value="0" placeholder="0 = livre">
+          </label>
+        </div>
+        <label class="check">
+          <input type="checkbox" id="yUp">
+          <span>Arquivo em Y para cima (glTF/Three.js)</span>
+        </label>
+        <div class="buttons" style="margin-top:10px;">
+          <button type="button" class="primary" id="export">Baixar .3mf</button>
+          <button type="button" class="ghost" id="resetFile">Trocar arquivo</button>
+        </div>
+        <p class="hint">Altura alvo 0 mantém o tamanho do arquivo; qualquer valor reescala a peça inteira.</p>
+      </section>
+    </aside>
+
+    <section class="stage">
+      <div class="stage-head">
+        <h2>Prévia</h2>
+        <div class="views">
+          <button type="button" data-view="iso">iso</button>
+          <button type="button" data-view="top">topo</button>
+          <button type="button" data-view="front">frente</button>
+          <button type="button" data-view="side">lado</button>
+        </div>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="preview"></canvas>
+        <div class="empty" id="empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 2.8 20 7v9.4l-8 4.2-8-4.2V7Z"/>
+            <path d="M4 7l8 4 8-4M12 11v9.4"/>
+          </svg>
+          <p>Abra um <b>.glb</b>, <b>.gltf</b>, <b>.obj</b> ou <b>.stl</b> para ver a prévia e exportar o 3MF.</p>
+        </div>
+      </div>
+      <div class="stage-foot">
+        <span>triângulos <b id="statTris">-</b></span>
+        <span>peças <b id="statParts">-</b></span>
+        <span>tamanho <b id="statSize">-</b></span>
+      </div>
+    </section>
+  </main>
+
+  <script src="split/3mf.js"></script>
+  <script src="convert/load.js"></script>
+  <script src="convert/mf3.js"></script>
+  <script src="convert/render.js"></script>
+  <script src="convert.js"></script>
+</body>
+</html>

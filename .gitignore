@@ -2,6 +2,9 @@ node_modules/
 dist/
 release/
 .downloads/
+models/
+tools/llama-cuda/
+*.gguf
 .chrome-debug/
 tools/out/
 *.log

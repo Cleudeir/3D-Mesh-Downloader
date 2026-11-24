@@ -50,6 +50,7 @@
     openNomesWithList: document.getElementById('openNomesWithList'),
     openIa: document.getElementById('openIa'),
     openSplit: document.getElementById('openSplit'),
+    openConvert: document.getElementById('openConvert'),
     reloadExt: document.getElementById('reloadExt'),
     staleBar: document.getElementById('staleBar'),
     staleText: document.getElementById('staleText'),
@@ -1107,6 +1108,16 @@
   if (els.openSplit) {
     els.openSplit.addEventListener('click', function () {
       var url = chrome.runtime.getURL('split.html');
+      try {
+        chrome.tabs.create({ url: url });
+      } catch (e) {
+        window.open(url, '_blank');
+      }
+    });
+  }
+  if (els.openConvert) {
+    els.openConvert.addEventListener('click', function () {
+      var url = chrome.runtime.getURL('convert.html');
       try {
         chrome.tabs.create({ url: url });
       } catch (e) {

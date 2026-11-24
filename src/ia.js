@@ -2,13 +2,14 @@
  * Estúdio IA - interface.
  *
  * Chat à esquerda, ambiente 3D à direita. O agente escreve scripts, executa no
- * sandbox, recebe capturas e medidas, e a biblioteca guarda o script de cada
- * objeto como memória.
+ * sandbox, recebe capturas e medidas. A biblioteca guarda o script de cada
+ * objeto apenas para o usuário; o agente não usa outros objetos como referência.
  */
 (function () {
   'use strict';
 
   var STORAGE_KEY = 'iaStudioWorkspace';
+  var MESH_HF_URL = 'https://huggingface.co/trackdr/LLaMA-Mesh-Q4_K_M-GGUF/resolve/main/llama-mesh-q4_k_m.gguf?download=true';
   var MAX_OBJECTS = 50;
   var MAX_VERSIONS = 12;
   var RUN_TIMEOUT = 25000;
@@ -35,6 +36,7 @@
     'scriptEditor', 'runScript', 'saveVersion', 'versionSelect', 'downloadScript',
     'scriptStatus', 'agentDot', 'agentState', 'settingsDialog', 'settingsForm',
     'settingsClose', 'apiKey', 'baseUrl', 'settingsModel', 'visionModel', 'maxSteps', 'effort',
+    'meshEnabled', 'meshBaseUrl', 'meshModel', 'meshTimeout', 'testMesh', 'downloadMesh',
     'testApi', 'clearWorkspace', 'settingsStatus', 'settingsSave',
     'imageDialog', 'imageLarge', 'imageCaption',
     'activity', 'activityLabel', 'activityTime', 'activitySteps',
@@ -56,10 +58,13 @@
       model: IaApi.DEFAULT_MODEL,
       visionModel: IaApi.DEFAULT_VISION_MODEL,
       maxSteps: 50,
-      effort: 'low'
+      effort: 'low',
+      meshEnabled: true,
+      meshBaseUrl: IaMesh.DEFAULT_BASE,
+      meshModel: IaMesh.DEFAULT_MODEL,
+      meshTimeout: 600
     },
     objects: [],
-    memory: [],
     chat: [],
     transcript: [],
     currentId: null,
@@ -67,6 +72,7 @@
     script: '',
     model: null,
     stats: null,
+    meshDraft: null,
     images: [],
     pendingName: '',
     lastRequest: '',
@@ -83,6 +89,7 @@
   var renderer = null;
   var agent = null;
   var scoutController = null;
+  var meshController = null;
   var referenceController = null;
   var benchmarkController = null;
   var benchmarkRefController = null;
@@ -132,7 +139,6 @@
       savedAt: Date.now(),
       settings: state.settings,
       objects: state.objects,
-      memory: state.memory,
       chat: state.chat,
       transcript: state.transcript,
       currentId: state.currentId,
@@ -170,6 +176,7 @@
       obj.plan = state.plan;
       obj.focus = state.focus;
       obj.reference = state.reference;
+      obj.meshDraft = state.meshDraft;
     }
   }
 
@@ -190,10 +197,10 @@
         obj.plan = Array.isArray(obj.plan) ? obj.plan : [];
         obj.focus = typeof obj.focus === 'string' ? obj.focus : '';
         obj.reference = obj.reference && typeof obj.reference === 'object' ? obj.reference : null;
+        obj.meshDraft = obj.meshDraft && typeof obj.meshDraft === 'object' ? obj.meshDraft : null;
         return obj;
       });
     }
-    if (Array.isArray(data.memory)) state.memory = data.memory.filter(function (m) { return typeof m === 'string'; }).slice(-40);
     if (Array.isArray(data.chat)) state.chat = data.chat;
     if (Array.isArray(data.transcript)) state.transcript = data.transcript;
     if (Array.isArray(data.plan)) {
@@ -235,6 +242,7 @@
       state.plan = obj.plan || [];
       state.focus = obj.focus || '';
       state.reference = obj.reference || null;
+      state.meshDraft = obj.meshDraft || null;
     }
   }
 
@@ -256,6 +264,11 @@
     if (['low', 'medium', 'high', 'off'].indexOf(state.settings.effort) === -1) {
       state.settings.effort = 'low';
     }
+    state.settings.meshEnabled = state.settings.meshEnabled !== false;
+    state.settings.meshBaseUrl = IaMesh.normalizeBase(state.settings.meshBaseUrl || IaMesh.DEFAULT_BASE);
+    state.settings.meshModel = String(state.settings.meshModel || IaMesh.DEFAULT_MODEL).trim() || IaMesh.DEFAULT_MODEL;
+    var meshTimeout = Math.round(Number(state.settings.meshTimeout) || 600);
+    state.settings.meshTimeout = Math.max(30, Math.min(3600, meshTimeout));
   }
 
   // -------------------------------------------------------------------------
@@ -446,10 +459,11 @@
     if (state.focus && !findPart(state.focus)) state.focus = '';
     syncPlanWithModel();
     renderer.setModel(currentParts());
-    els.empty.hidden = !!(model && model.parts && model.parts.length);
+    applyDraftReference();
+    els.empty.hidden = !!((model && model.parts && model.parts.length) || draftParts().length);
     updateHud();
     renderPartsBar();
-    if (model && model.parts && model.parts.length) flashViewport();
+    if ((model && model.parts && model.parts.length) || draftParts().length) flashViewport();
   }
 
   function flashViewport() {
@@ -465,15 +479,19 @@
     try {
       var savedFocus = state.focus;
       state.focus = '';
-      renderer.setModel(modelParts());
+      var main = modelParts();
+      renderer.setModel(main.length ? main : draftParts());
+      renderer.setReference([]);
       var shots = renderer.snapshot(['perspective'], {
         width: 320,
         height: 220,
         quality: 0.7,
-        grid: false
+        grid: false,
+        reference: false
       });
       state.focus = savedFocus;
       renderer.setModel(currentParts());
+      applyDraftReference();
       return shots.length ? shots[0].dataUrl : '';
     } catch (e) {
       return '';
@@ -485,16 +503,58 @@
       width: 512,
       height: 384,
       quality: 0.75,
-      grid: false
+      grid: false,
+      reference: false
     });
     state.images = images;
     return images;
   }
 
+  /** Captura só o rascunho, sem o modelo paramétrico e sem o contorno. */
+  function captureDraft(draft, views) {
+    var savedModel = state.model;
+    var savedStats = state.stats;
+    var savedFocus = state.focus;
+    try {
+      state.model = { name: draft.name, parts: draft.parts };
+      state.stats = draft.stats;
+      state.focus = '';
+      renderer.setModel(draft.parts);
+      renderer.setReference([]);
+      return renderer.snapshot(views || ['perspective', 'top', 'front', 'right'], {
+        width: 512,
+        height: 384,
+        quality: 0.75,
+        grid: false,
+        reference: false
+      });
+    } finally {
+      state.model = savedModel;
+      state.stats = savedStats;
+      state.focus = savedFocus;
+      renderer.setModel(currentParts());
+      applyDraftReference();
+    }
+  }
+
   function updateHud() {
     var stats = state.stats;
     if (!stats) {
-      els.hud.textContent = '';
+      if (state.meshDraft && state.meshDraft.stats) {
+        var d = state.meshDraft.stats;
+        var draftPointCount = 0;
+        draftParts().forEach(function (part) {
+          if (part.points) draftPointCount += part.points.length / 3;
+        });
+        var draftTps = state.meshDraft.tps ? '<span>' + fmtTps(state.meshDraft.tps) + '</span>' : '';
+        els.hud.innerHTML = '<span class="badge-warn" title="Rascunho LLaMA-Mesh: contorno de referência; não entra no STL.">' +
+          '<b>rascunho</b></span>' +
+          (d.triangles > 0
+            ? '<span><b>' + fmtInt(d.triangles) + '</b> triângulos</span><span>' + fmtSize(d.size) + '</span>' + draftTps
+            : '<span>gerando…' + (draftPointCount ? ' · ' + fmtInt(draftPointCount) + ' pontos' : '') + '</span>' + draftTps);
+      } else {
+        els.hud.textContent = '';
+      }
       return;
     }
     var bits = [];
@@ -541,6 +601,12 @@
     return size.map(function (v) { return v.toFixed(1); }).join(' × ') + ' mm';
   }
 
+  function fmtTps(value) {
+    var n = Number(value) || 0;
+    if (!n) return '';
+    return '~' + n.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' tok/s';
+  }
+
   function fmtVolume(mm3) {
     var value = Number(mm3) || 0;
     if (value >= 1000) {
@@ -581,6 +647,39 @@
 
   function modelParts() {
     return state.model && Array.isArray(state.model.parts) ? state.model.parts : [];
+  }
+
+  function draftParts() {
+    if (!state.meshDraft || !Array.isArray(state.meshDraft.parts)) return [];
+    return state.meshDraft.parts;
+  }
+
+  function emptyDraftStats() {
+    return {
+      triangles: 0,
+      volume: 0,
+      area: 0,
+      size: [0, 0, 0],
+      min: [0, 0, 0],
+      max: [0, 0, 0],
+      center: [0, 0, 0],
+      boundaryEdges: 0,
+      nonManifoldEdges: 0,
+      watertight: false
+    };
+  }
+
+  function meshConfigured() {
+    return state.settings.meshEnabled !== false &&
+      !!String(state.settings.meshModel || '').trim() &&
+      !!String(state.settings.meshBaseUrl || '').trim();
+  }
+
+  /** O rascunho é só um contorno: nunca entra em modelParts/STL. */
+  function applyDraftReference() {
+    if (!renderer) return;
+    var visible = state.meshDraft && state.meshDraft.visible !== false;
+    renderer.setReference(visible ? draftParts() : []);
   }
 
   function findPart(name) {
@@ -656,7 +755,7 @@
   function renderPartsBar() {
     if (!els.partsBar) return;
     var parts = modelParts();
-    if (!state.plan.length && !parts.length) {
+    if (!state.plan.length && !parts.length && !state.meshDraft) {
       els.partsBar.hidden = true;
       els.partsBar.textContent = '';
       return;
@@ -668,6 +767,33 @@
     title.className = 'ptitle';
     title.textContent = 'partes';
     els.partsBar.appendChild(title);
+
+    if (state.meshDraft) {
+      var draft = document.createElement('button');
+      draft.type = 'button';
+      var visible = state.meshDraft.visible !== false;
+      draft.className = 'draft' + (visible ? ' active' : '');
+      draft.dataset.draft = 'toggle';
+      var draftTriangles = state.meshDraft.stats ? state.meshDraft.stats.triangles : 0;
+      var draftPoints = 0;
+      draftParts().forEach(function (part) {
+        if (part.points) draftPoints += part.points.length / 3;
+      });
+      var draftLabel = '◇ rascunho';
+      if (state.meshDraft.streaming) {
+        if (draftTriangles > 0) draftLabel += ' · ' + fmtInt(draftTriangles) + ' tri';
+        else if (draftPoints > 0) draftLabel += ' · ' + fmtInt(draftPoints) + ' pontos';
+        else draftLabel += ' · gerando';
+        if (state.meshDraft.tps) draftLabel += ' · ' + fmtTps(state.meshDraft.tps);
+      } else if (state.meshDraft.shells && state.meshDraft.shells.length > 1) {
+        draftLabel += ' · ' + state.meshDraft.shells.length;
+      }
+      if (state.meshDraft.corrections) draftLabel += ' · corrigido ' + state.meshDraft.corrections + 'x';
+      draft.textContent = draftLabel;
+      draft.title = 'Rascunho LLaMA-Mesh: ' + (state.meshDraft.prompt || '') +
+        ' — contorno de referência; não entra no STL. Clique para mostrar/ocultar.';
+      els.partsBar.appendChild(draft);
+    }
 
     els.partsBar.appendChild(partChip('Conjunto', null, null, !state.focus, false, ''));
     var allChip = els.partsBar.lastChild;
@@ -763,6 +889,7 @@
       plan: state.plan.slice(),
       focus: state.focus || '',
       reference: state.reference || null,
+      meshDraft: state.meshDraft || null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       versions: []
@@ -887,6 +1014,7 @@
     state.plan = obj.plan || [];
     state.focus = obj.focus || '';
     state.reference = obj.reference || null;
+    state.meshDraft = obj.meshDraft || null;
     clearAttachment();
     state.chat = obj.chat || [];
     state.transcript = obj.transcript || [];
@@ -902,7 +1030,12 @@
     save();
 
     if (!obj.script.trim()) {
-      els.empty.hidden = false;
+      state.model = null;
+      state.stats = null;
+      renderer.setModel([]);
+      applyDraftReference();
+      els.empty.hidden = !!draftParts().length;
+      updateHud();
       renderPartsBar();
       return Promise.resolve({
         text: 'Objeto "' + obj.name + '" está vazio (ainda sem script).',
@@ -925,19 +1058,6 @@
         text: 'Objeto aberto: "' + obj.name + '".',
         stats: result.stats
       };
-    });
-  }
-
-  /** Leitura para o agente: não troca a conversa atual. */
-  function readObject(id) {
-    var obj = findObject(id);
-    if (!obj) return Promise.reject(new Error('objeto não encontrado: ' + id));
-    return Promise.resolve({
-      text: 'Objeto "' + obj.name + '" (somente leitura — a conversa atual continua a mesma).\n' +
-        (obj.description ? 'Descrição: ' + obj.description + '\n' : '') +
-        (obj.stats ? 'Medidas: ' + fmtSize(obj.stats.size) + ', ' + fmtVolume(obj.stats.volume) + '\n' : '') +
-        'Script:\n```js\n' + obj.script + '\n```',
-      stats: obj.stats
     });
   }
 
@@ -1007,8 +1127,9 @@
     return !!IaApi.modelInfo(state.settings.visionModel).vision;
   }
 
-  function buildInspectorPrompt(extra) {
+  function buildInspectorPrompt(extra, statsOverride) {
     var obj = currentObject();
+    var stats = statsOverride || state.stats;
     var lines = [
       'Você é o inspetor visual de um estúdio de geometria 3D para impressão FDM.',
       'Olhe as capturas do modelo atual (perspectiva, topo, baixo, frente e lados) e escreva um laudo curto em português.',
@@ -1022,13 +1143,13 @@
       'Pedido do usuário: ' + (state.lastRequest || '(não informado)'),
       'Objeto: ' + (obj ? obj.name : '(sem nome)') + (obj && obj.description ? ' — ' + obj.description : '')
     ];
-    if (state.stats) {
-      lines.push('Medidas informadas: ' + fmtSize(state.stats.size) + ', volume ' + fmtVolume(state.stats.volume) + '.');
-      if (state.stats.parts) {
-        lines.push('Peças: ' + state.stats.parts.map(function (p) { return p.name; }).join(', ') + '.');
+    if (stats) {
+      lines.push('Medidas informadas: ' + fmtSize(stats.size) + ', volume ' + fmtVolume(stats.volume) + '.');
+      if (stats.parts) {
+        lines.push('Peças: ' + stats.parts.map(function (p) { return p.name; }).join(', ') + '.');
       }
-      if (state.stats.loose && state.stats.loose.length) {
-        lines.push('Aviso da geometria: possíveis peças soltas — ' + state.stats.loose.map(function (item) {
+      if (stats.loose && stats.loose.length) {
+        lines.push('Aviso da geometria: possíveis peças soltas — ' + stats.loose.map(function (item) {
           return item.a + '↔' + item.b;
         }).join('; ') + '. Confirme nas capturas.');
       }
@@ -1037,7 +1158,7 @@
     return lines.join('\n');
   }
 
-  function scoutReport(images, extra) {
+  function scoutReport(images, extra, statsOverride) {
     if (!visionConfigured()) {
       return Promise.reject(new Error('escolha um modelo de visão em Ajustes'));
     }
@@ -1048,7 +1169,7 @@
       apiKey: state.settings.apiKey,
       baseUrl: state.settings.baseUrl,
       model: state.settings.visionModel,
-      prompt: buildInspectorPrompt(extra),
+      prompt: buildInspectorPrompt(extra, statsOverride),
       images: images.map(function (image) { return image.dataUrl; }),
       sessionId: state.sessionId,
       signal: guard.signal,
@@ -2151,6 +2272,7 @@
         maxSteps: state.settings.maxSteps,
         effort: state.settings.effort || 'low',
         sessionId: state.sessionId,
+        meshEnabled: meshConfigured(),
         timeout: 300000
       };
     },
@@ -2190,22 +2312,7 @@
       }
 
       lines.push('');
-      lines.push('Biblioteca (' + state.objects.length + ' objetos):');
-      if (state.objects.length) {
-        state.objects.slice(0, 20).forEach(function (item) {
-          lines.push('- ' + item.id + ' · "' + item.name + '" · ' +
-            (item.stats ? fmtSize(item.stats.size) : 'sem medidas') +
-            (item.description ? ' · ' + item.description : ''));
-        });
-      } else {
-        lines.push('- (vazia)');
-      }
-
-      if (state.memory.length) {
-        lines.push('');
-        lines.push('Memória do usuário:');
-        state.memory.slice(-12).forEach(function (note) { lines.push('- ' + note); });
-      }
+      lines.push('Você trabalha apenas com o objeto atual. NÃO leia nem use outros objetos da biblioteca como referência.');
 
       if (state.plan.length) {
         lines.push('');
@@ -2225,6 +2332,22 @@
         });
         if (extras.length) {
           lines.push('Peças no modelo fora do plano: ' + extras.map(function (p) { return p.name; }).join(', '));
+        }
+      }
+
+      lines.push('');
+      lines.push('LLaMA-Mesh local: ' + (meshConfigured()
+        ? 'ativado · ' + state.settings.meshModel + ' em ' + state.settings.meshBaseUrl +
+          ' (ferramenta llama_mesh: rascunho de referência, não entra no STL)'
+        : 'desativado em Ajustes'));
+      if (state.meshDraft) {
+        lines.push('Rascunho LLaMA-Mesh já gerado automaticamente: "' + state.meshDraft.name + '" · ' +
+          fmtInt(state.meshDraft.stats.triangles) + ' triângulos · ' + fmtSize(state.meshDraft.stats.size) +
+          ' · ' + (state.meshDraft.stats.watertight ? 'fechado' : 'aberto') +
+          (state.meshDraft.corrections ? ' · corrigido ' + state.meshDraft.corrections + 'x pelo LLaMA-Mesh' : '') +
+          '. Use-o como alvo visual; ele NÃO entra no STL. NÃO chame llama_mesh de novo para este objeto.');
+        if (state.meshDraft.report) {
+          lines.push('Laudo do rascunho: ' + state.meshDraft.report);
         }
       }
 
@@ -2380,22 +2503,6 @@
       return Promise.resolve({ text: text, stats: stats });
     },
 
-    listObjects: function () {
-      if (!state.objects.length) return Promise.resolve('A biblioteca está vazia.');
-      var lines = state.objects.map(function (obj) {
-        return '- ' + obj.id + ' · "' + obj.name + '"' +
-          (obj.stats ? ' · ' + fmtSize(obj.stats.size) + ' · ' + fmtVolume(obj.stats.volume) : '') +
-          (obj.description ? ' · ' + obj.description : '');
-      });
-      return Promise.resolve('Objetos salvos (memória):\n' + lines.join('\n'));
-    },
-
-    loadObject: function (id) {
-      return readObject(id).then(function (result) {
-        return { text: result.text, stats: result.stats };
-      });
-    },
-
     saveObject: function (args) {
       var obj = currentObject();
       if (!obj) return Promise.resolve('Nenhum objeto atual para atualizar.');
@@ -2407,15 +2514,6 @@
       renderObjects();
       syncObjectUI();
       return Promise.resolve('Objeto "' + obj.name + '" atualizado.');
-    },
-
-    saveMemory: function (note) {
-      var text = String(note || '').trim();
-      if (!text) return Promise.resolve('Nada para guardar.');
-      if (state.memory.indexOf(text) === -1) state.memory.push(text);
-      if (state.memory.length > 40) state.memory = state.memory.slice(-40);
-      save();
-      return Promise.resolve('Memória atualizada: ' + text);
     },
 
     searchReference: function (query, count) {
@@ -2434,6 +2532,164 @@
         var text = 'Referências para "' + state.reference.query + '": ' + images.length +
           ' imagem(ns).\n\n' + state.reference.report;
         return { text: text, images: images, report: state.reference.report };
+      });
+    },
+
+    llamaMesh: function (prompt, opts) {
+      opts = opts || {};
+      var query = String(prompt || '').trim();
+      if (!query) return Promise.reject(new Error('prompt do rascunho vazio'));
+      if (!meshConfigured()) {
+        return Promise.reject(new Error('LLaMA-Mesh está desativado. Ative em Ajustes e informe a URL/modelo local.'));
+      }
+
+      if (meshController) meshController.abort();
+      meshController = new AbortController();
+      var guard = meshController;
+      var sizeMm = Math.max(5, Math.min(300, Number(opts.sizeMm) || 60));
+      var previousDraft = state.meshDraft;
+      var fixing = !!(opts.fix && previousDraft);
+      var correction = fixing
+        ? (String(opts.feedback || previousDraft.report || '').trim() ||
+          'A malha anterior tem arestas abertas ou peças soltas; feche e conecte todas as partes.')
+        : '';
+      if (fixing && !opts.name) opts.name = 'Rascunho corrigido';
+
+      var obj = ensureObject({
+        name: opts.name || ('Rascunho ' + (state.objects.length + 1)),
+        description: (fixing ? 'Rascunho corrigido pelo LLaMA-Mesh: ' : 'Rascunho LLaMA-Mesh: ') + query
+      });
+      var draft = {
+        name: opts.name || 'Rascunho',
+        prompt: query,
+        sizeMm: sizeMm,
+        at: Date.now(),
+        parts: [],
+        stats: emptyDraftStats(),
+        shells: [],
+        warnings: [],
+        finishReason: '',
+        visible: true,
+        report: '',
+        streaming: true,
+        corrections: fixing ? ((previousDraft.corrections || 0) + 1) : 0
+      };
+      state.meshDraft = draft;
+      obj.meshDraft = draft;
+      applyDraftReference();
+      updateHud();
+      renderPartsBar();
+      els.empty.hidden = !!(modelParts().length || draftParts().length);
+      save();
+
+      var lastUi = 0;
+      function applyDraftProgress(partial, force) {
+        if (!partial) return;
+        // Um parse parcial só com vértices não pode apagar as faces já recebidas.
+        if (partial.parts && (partial.parts.length || !draft.parts.length)) draft.parts = partial.parts;
+        if (partial.stats) draft.stats = partial.stats;
+        if (partial.shells) draft.shells = partial.shells;
+        if (partial.warnings) draft.warnings = partial.warnings;
+        if (partial.tps) draft.tps = partial.tps;
+        if (partial.tokens) draft.tokens = partial.tokens;
+        state.meshDraft = draft;
+        obj.meshDraft = draft;
+        applyDraftReference();
+        var now = Date.now();
+        if (force || now - lastUi >= 350) {
+          lastUi = now;
+          updateHud();
+          renderPartsBar();
+          els.empty.hidden = !!(modelParts().length || draftParts().length);
+        }
+      }
+
+      announce(fixing ? 'corrigindo rascunho com LLaMA-Mesh' : 'gerando rascunho com LLaMA-Mesh');
+      return IaMesh.generate({
+        baseUrl: state.settings.meshBaseUrl,
+        model: state.settings.meshModel,
+        prompt: query,
+        feedback: correction,
+        name: opts.name || 'Rascunho',
+        sizeMm: sizeMm,
+        timeout: (Number(state.settings.meshTimeout) || 600) * 1000,
+        signal: guard.signal,
+        onProgress: function (partial) { applyDraftProgress(partial, false); }
+      }).then(function (result) {
+        draft.name = result.name || draft.name;
+        draft.finishReason = result.finishReason || '';
+        draft.streaming = false;
+        applyDraftProgress(result, true);
+        obj.thumb = thumb();
+        renderObjects();
+        save();
+
+        var images = [];
+        try { images = captureDraft(draft); } catch (e) { images = []; }
+        var reportPromise = visionConfigured() && images.length
+          ? scoutReport(images,
+            'Estas capturas são de um RASCUNHO LLaMA-Mesh (low-poly, possivelmente aberto), ' +
+            'não da peça final. Avalie silhueta, proporções e volumes para guiar a reconstrução paramétrica. ' +
+            'Não trate a malha como printável.',
+            draft.stats)
+          : Promise.resolve(visionConfigured()
+            ? 'Sem capturas do rascunho.'
+            : 'Inspetor de visão desligado em Ajustes; use as medidas do rascunho.');
+
+        return reportPromise.catch(function (error) {
+          return 'Inspetor de visão indisponível: ' +
+            (error && error.message ? error.message : error) + '. Use as medidas do rascunho.';
+        }).then(function (report) {
+          draft.report = report;
+          obj.meshDraft = draft;
+          obj.thumb = thumb();
+          renderObjects();
+          save();
+
+          var shellLines = (draft.shells || []).map(function (shell, index) {
+            return (index + 1) + '. ' + shell.name + ' · ' + fmtInt(shell.triangles) + ' triângulos · ' +
+              fmtSize(shell.size) + ' · centro ' + shell.center.map(function (v) { return Number(v).toFixed(1); }).join(', ');
+          });
+          var lines = [
+            'Rascunho LLaMA-Mesh: "' + draft.name + '"',
+            'prompt: ' + query,
+            'triângulos: ' + fmtInt(draft.stats.triangles),
+            draft.corrections ? 'correções feitas pelo LLaMA-Mesh: ' + draft.corrections : '',
+            draft.tps ? 'geração: ' + fmtTps(draft.tps) + ' (' + fmtInt(draft.tokens) + ' tokens)' : '',
+            'medidas: ' + fmtSize(draft.stats.size) + ' · volume ' + fmtVolume(draft.stats.volume),
+            'malha: boundaryEdges=' + draft.stats.boundaryEdges +
+              ', nonManifoldEdges=' + draft.stats.nonManifoldEdges +
+              (draft.stats.watertight ? ' (fechada)' : ' (aberta)'),
+            shellLines.length > 1
+              ? 'cascas (' + shellLines.length + '):\n' + shellLines.join('\n')
+              : '',
+            draft.warnings.length ? 'avisos: ' + draft.warnings.join('; ') : '',
+            'O rascunho está na tela como contorno e NÃO entra no STL. Use a silhueta/proporções como alvo e ' +
+              'reconstrua com plan_parts + run_geometry, uma parte por vez.',
+            report ? '\nLaudo do inspetor de visão:\n' + report : ''
+          ].filter(Boolean);
+
+          return {
+            text: lines.join('\n'),
+            stats: draft.stats,
+            images: images,
+            report: report
+          };
+        });
+      }).catch(function (error) {
+        draft.streaming = false;
+        if ((!draft.parts || !draft.parts.length) && state.meshDraft === draft) {
+          state.meshDraft = null;
+          obj.meshDraft = null;
+          applyDraftReference();
+          updateHud();
+          renderPartsBar();
+          els.empty.hidden = !!modelParts().length;
+          save();
+        }
+        throw error;
+      }).finally(function () {
+        if (meshController === guard) meshController = null;
       });
     },
 
@@ -2561,12 +2817,10 @@
     run_geometry: 'script',
     capture_views: 'capturas',
     inspect_geometry: 'medidas',
-    list_objects: 'memória',
-    load_object: 'abrir objeto',
     plan_parts: 'plano de partes',
     search_reference: 'referência',
-    save_object: 'salvar objeto',
-    save_memory: 'lembrar'
+    llama_mesh: 'rascunho 3D',
+    save_object: 'salvar objeto'
   };
 
   function appendTool(data) {
@@ -2870,7 +3124,6 @@
       return 'executando' + (lines ? ' ' + lines + ' linhas de script' : ' o script');
     }
     if (data.name === 'capture_views') return 'tirando capturas e chamando o inspetor';
-    if (data.name === 'load_object') return 'carregando da biblioteca';
     return 'trabalhando…';
   }
 
@@ -2951,10 +3204,52 @@
     setAgentState('erro', 'err');
   }
 
+  /**
+   * Rascunho automático: antes do primeiro passo em um objeto novo, gera o
+   * LLaMA-Mesh sem o usuário precisar pedir. A falha nunca bloqueia o agente.
+   */
+  function needsMeshFix(result) {
+    if (!result) return false;
+    var stats = result.stats || {};
+    if (stats.boundaryEdges > 0 || stats.nonManifoldEdges > 0) return true;
+    return /vão|solto|solta|aberta|aberto|faltando|sem furo|incomplet|errad|desconectad/i
+      .test(String(result.report || ''));
+  }
+
+  function autoMeshIfNeeded(text) {
+    if (!meshConfigured()) return Promise.resolve();
+    if (!text || !text.trim()) return Promise.resolve();
+    var obj = currentObject();
+    if (obj && obj.script && obj.script.trim()) return Promise.resolve();
+    if (state.meshDraft) return Promise.resolve();
+    var prompt = String(text).trim();
+    return host.llamaMesh(prompt, { name: 'Rascunho' })
+      .then(function (result) {
+        // A correção do rascunho é feita pelo próprio LLaMA-Mesh, não pelo agente.
+        if (!needsMeshFix(result)) return null;
+        var feedback = result.report ||
+          'A malha tem arestas abertas ou peças soltas; feche-a e conecte todas as partes.';
+        return host.llamaMesh(prompt, {
+          fix: true,
+          feedback: feedback,
+          name: 'Rascunho corrigido'
+        }).then(function () { return null; }).catch(function (error) {
+          console.warn('[3D Mesh Downloader] correção do rascunho falhou:', error);
+          return null;
+        });
+      })
+      .catch(function (error) {
+        console.warn('[3D Mesh Downloader] rascunho automático falhou:', error);
+        return null;
+      });
+  }
+
   function runAgentRequest(kind, text, label) {
     state.busy = true;
     setBusy(true, label || 'pensando');
-    var request = kind === 'retry' ? agent.retry() : agent.send(text);
+    var request = kind === 'retry'
+      ? agent.retry()
+      : autoMeshIfNeeded(text).then(function () { return agent.send(text); });
     return request.then(function () {
       state.chat = agent.exportHistory();
       save();
@@ -3166,20 +3461,24 @@
   }
 
   function exportStl() {
-    if (!state.model || !state.model.parts.length) {
+    var exportParts = state.model && state.model.parts && state.model.parts.length
+      ? state.model.parts
+      : draftParts();
+    var usingDraft = !(state.model && state.model.parts && state.model.parts.length);
+    if (!exportParts.length) {
       appendAssistant('Não há geometria para exportar ainda.', true);
       return;
     }
     var obj = currentObject();
-    var name = safeFileName(obj ? obj.name : 'geometria');
+    var name = safeFileName(obj ? obj.name : 'geometria') + (usingDraft ? '_rascunho' : '');
     try {
-      var buffer = IaKernel.stlBinary(state.model.parts.map(function (part) { return part.positions; }),
+      var buffer = IaKernel.stlBinary(exportParts.map(function (part) { return part.positions; }),
         obj ? obj.name : '');
       download(buffer, name + '.stl', 'model/stl');
       var triangles = Math.round((buffer.byteLength - 84) / 50);
-      els.scriptStatus.textContent = 'STL: ' + fmtInt(triangles) + ' triângulos, ' +
+      els.scriptStatus.textContent = (usingDraft ? 'STL do rascunho (malha nao reparada): ' : 'STL: ') + fmtInt(triangles) + ' triângulos, ' +
         (buffer.byteLength / 1024).toFixed(0) + ' KB';
-      els.scriptStatus.className = 'script-status ok';
+      els.scriptStatus.className = 'script-status ' + (usingDraft ? 'err' : 'ok');
     } catch (error) {
       appendAssistant('Falha ao exportar: ' + error.message, true);
     }
@@ -3221,6 +3520,10 @@
     fillSelect(els.visionModel, IaApi.visionModels(), state.settings.visionModel);
     els.maxSteps.value = String(state.settings.maxSteps);
     els.effort.value = state.settings.effort || 'low';
+    els.meshEnabled.checked = state.settings.meshEnabled !== false;
+    els.meshBaseUrl.value = state.settings.meshBaseUrl || IaMesh.DEFAULT_BASE;
+    els.meshModel.value = state.settings.meshModel || IaMesh.DEFAULT_MODEL;
+    els.meshTimeout.value = String(state.settings.meshTimeout || 600);
     els.settingsStatus.textContent = '';
     els.settingsStatus.className = 'status';
     if (typeof els.settingsDialog.showModal === 'function') els.settingsDialog.showModal();
@@ -3242,6 +3545,11 @@
     state.settings.visionModel = els.visionModel.value || IaApi.DEFAULT_VISION_MODEL;
     state.settings.maxSteps = steps;
     state.settings.effort = els.effort.value || 'low';
+    state.settings.meshEnabled = !!els.meshEnabled.checked;
+    state.settings.meshBaseUrl = IaMesh.normalizeBase(els.meshBaseUrl.value.trim() || IaMesh.DEFAULT_BASE);
+    state.settings.meshModel = String(els.meshModel.value || '').trim() || IaMesh.DEFAULT_MODEL;
+    var meshTimeout = Math.round(Number(els.meshTimeout.value) || 600);
+    state.settings.meshTimeout = Math.max(30, Math.min(3600, meshTimeout));
     fillSelect(els.modelSelect, IaApi.mainModels(), state.settings.model);
     els.setupBanner.hidden = !!key;
     save(true);
@@ -3269,6 +3577,38 @@
     }).finally(function () {
       els.testApi.disabled = false;
     });
+  }
+
+  function testMesh() {
+    var baseUrl = IaMesh.normalizeBase(els.meshBaseUrl.value.trim() || IaMesh.DEFAULT_BASE);
+    els.testMesh.disabled = true;
+    settingsStatus('verificando o LLaMA-Mesh local...', '');
+    IaMesh.ping({ baseUrl: baseUrl, timeout: 5000 }).then(function (result) {
+      var models = result.models || [];
+      var wanted = String(els.meshModel.value || '').trim();
+      var hasWanted = !wanted || models.indexOf(wanted) !== -1;
+      settingsStatus(
+        'servidor ok' + (models.length ? ' · modelos: ' + models.slice(0, 4).join(', ') : '') +
+          (hasWanted ? '' : ' · o modelo "' + wanted + '" não aparece na lista'),
+        hasWanted ? 'ok' : 'err');
+    }).catch(function (error) {
+      settingsStatus(error.message, 'err');
+    }).finally(function () {
+      els.testMesh.disabled = false;
+    });
+  }
+
+  function downloadMeshModel() {
+    if (!confirm('O modelo LLaMA-Mesh Q4_K_M tem cerca de 4,9 GB. ' +
+      'O download vai para a pasta de Downloads do navegador. Continuar?')) return;
+    try {
+      chrome.tabs.create({ url: MESH_HF_URL });
+    } catch (e) {
+      window.open(MESH_HF_URL, '_blank');
+    }
+    settingsStatus(
+      'download iniciado (~4,9 GB). Para deixar o arquivo na pasta do projeto e iniciar o servidor, ' +
+      'use: powershell -ExecutionPolicy Bypass -File tools\\download-llama-mesh.ps1', '');
   }
 
   function iaApiBase(value) {
@@ -3414,6 +3754,7 @@
     els.stopAgent.addEventListener('click', function () {
       if (scoutController) scoutController.abort();
       if (referenceController) referenceController.abort();
+      if (meshController) meshController.abort();
       agent.stop();
       setAgentState('parando…', 'live');
       setTimeout(function () {
@@ -3447,6 +3788,14 @@
     });
 
     els.partsBar.addEventListener('click', function (event) {
+      var draft = event.target.closest('button[data-draft]');
+      if (draft && state.meshDraft) {
+        state.meshDraft.visible = state.meshDraft.visible === false;
+        applyDraftReference();
+        renderPartsBar();
+        save();
+        return;
+      }
       var button = event.target.closest('button[data-focus]');
       if (!button || button.disabled) return;
       setFocus(button.dataset.focus || '');
@@ -3508,6 +3857,8 @@
     els.settingsClose.addEventListener('click', closeSettings);
     els.settingsSave.addEventListener('click', saveSettings);
     els.testApi.addEventListener('click', testConnection);
+    els.testMesh.addEventListener('click', testMesh);
+    els.downloadMesh.addEventListener('click', downloadMeshModel);
     els.settingsModel.addEventListener('change', function () {
       var model = IaApi.modelInfo(els.settingsModel.value);
       settingsStatus(model.note ? model.note : '', '');
@@ -3517,9 +3868,8 @@
       settingsStatus(model ? 'inspetor: ' + model.label : '', '');
     });
     els.clearWorkspace.addEventListener('click', function () {
-      if (!confirm('Apagar todos os objetos, a memória e a conversa? Isso não pode ser desfeito.')) return;
+      if (!confirm('Apagar todos os objetos e a conversa? Isso não pode ser desfeito.')) return;
       state.objects = [];
-      state.memory = [];
       state.chat = [];
       state.transcript = [];
       state.currentId = null;
@@ -3531,6 +3881,7 @@
       state.plan = [];
       state.focus = '';
       state.reference = null;
+      state.meshDraft = null;
       state.benchmark = emptyBenchmark();
       clearAttachment();
       els.scriptEditor.value = '';
@@ -3623,6 +3974,7 @@
       state.plan = [];
       state.focus = '';
       state.reference = null;
+      state.meshDraft = null;
       clearAttachment();
       if (agent) agent.reset();
       els.scriptEditor.value = '';
@@ -3674,6 +4026,7 @@
     state.plan = [];
     state.focus = '';
     state.reference = null;
+    state.meshDraft = null;
     clearAttachment();
     if (agent) agent.reset();
 
@@ -3751,6 +4104,7 @@
       els.setupBanner.hidden = !!state.settings.apiKey;
 
       renderer = IaRender.create(els.preview);
+      applyDraftReference();
       agent = IaAgent.create(host);
 
       bind();
@@ -3774,6 +4128,13 @@
         if (obj.draft && obj.draft !== obj.script) {
           els.scriptStatus.textContent = 'rascunho não executado';
           els.scriptStatus.className = 'script-status';
+        }
+        if (!obj.script.trim() && draftParts().length) {
+          renderer.setModel([]);
+          applyDraftReference();
+          els.empty.hidden = true;
+          updateHud();
+          renderPartsBar();
         }
         if (obj.script.trim()) {
           setAgentState('reconstruindo objeto…', 'live');

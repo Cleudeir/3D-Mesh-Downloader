@@ -13,6 +13,7 @@ const Field = require('../src/nomes/field.js');
 const Font = require('../src/nomes/font.js');
 const Agent = require('../src/ia/agent.js');
 const Api = require('../src/ia/api.js');
+const Mesh = require('../src/ia/mesh.js');
 
 const font = Font.parse(new Uint8Array(fs.readFileSync(path.join(__dirname, '../src/fonts/Chewy-Regular.ttf'))));
 Kernel.configure({ Field, Font, font });
@@ -421,11 +422,186 @@ async function testAgentPlan() {
   check('histórico registra o pedido e a resposta', agent.exportHistory().length === 2);
 }
 
+const CUBE_OBJ = [
+  'v -1 -1 -1', 'v 1 -1 -1', 'v 1 1 -1', 'v -1 1 -1',
+  'v -1 -1 1', 'v 1 -1 1', 'v 1 1 1', 'v -1 1 1',
+  'f 5 6 7 8', 'f 4 3 2 1', 'f 1 5 8 4',
+  'f 2 3 7 6', 'f 4 8 7 3', 'f 1 2 6 5'
+].join('\n');
+
+async function testMesh() {
+  section('LLaMA-Mesh: parser OBJ, reparo e cliente local');
+
+  check('normaliza URL local sem esquema',
+    Mesh.normalizeBase('localhost:8080/v1') === 'http://localhost:8080/v1');
+  check('prompt de correção inclui o feedback',
+    Mesh.buildPrompt('a vase with a handle', { feedback: 'a alça está solta' })
+      .indexOf('a alça está solta') !== -1);
+
+  const extracted = Mesh.extractOBJ('Claro! Aqui está:\n```obj\n' + CUBE_OBJ + '\n```\nPronto.');
+  check('recorta o OBJ de dentro da cerca de markdown', extracted.indexOf('v -1 -1 -1') === 0);
+
+  const cube = Mesh.parseOBJ(CUBE_OBJ, { name: 'Cubo', sizeMm: 10 });
+  check('triangula os quads e solda os vértices', cube.stats.triangles === 12);
+  check('escala para a maior dimensão pedida', Math.abs(Math.max.apply(null, cube.stats.size) - 10) < 0.001);
+  check('apoia em z=0', Math.abs(cube.stats.min[2]) < 0.001);
+  check('volume do cubo bate', Math.abs(cube.stats.volume - 1000) < 0.5, String(cube.stats.volume));
+  check('cubo gera uma casca', cube.shells.length === 1);
+
+  const openText = CUBE_OBJ.split('\n').slice(0, -1).join('\n');
+  const open = Mesh.parseOBJ(openText, { sizeMm: 10 });
+  check('malha aberta é detectada', open.stats.boundaryEdges > 0);
+  check('aviso de malha aberta aparece', open.warnings.some((w) => w.indexOf('aberta') !== -1));
+
+  const fakeFetch = (url, options) => {
+    check('chama /chat/completions no servidor local', /\/chat\/completions$/.test(url));
+    check('pede OBJ no prompt', JSON.parse(options.body).messages[1].content.indexOf('OBJ') !== -1);
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        choices: [{ message: { content: '```obj\n' + CUBE_OBJ + '\n```' }, finish_reason: 'stop' }]
+      })
+    });
+  };
+  const generated = await Mesh.generate({
+    baseUrl: 'http://127.0.0.1:8080/v1',
+    model: 'llama-mesh',
+    prompt: 'a wooden cube',
+    sizeMm: 20,
+    fetchImpl: fakeFetch
+  });
+  check('generate parseia a resposta do servidor', generated.stats.triangles === 12);
+  check('generate aplica o tamanho pedido', Math.abs(Math.max.apply(null, generated.stats.size) - 20) < 0.001);
+
+  const truncated = await Mesh.generate({
+    baseUrl: 'http://127.0.0.1:8080/v1',
+    prompt: 'cube',
+    fetchImpl: () => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        choices: [{ message: { content: CUBE_OBJ }, finish_reason: 'length' }]
+      })
+    })
+  });
+  check('resposta truncada gera aviso', truncated.warnings.some((w) => w.indexOf('truncada') !== -1));
+
+  const partial = Mesh.parseOBJ('v 0 0 0\nv 1 0 0\n', { partial: true });
+  check('parse parcial aceita OBJ só com vértices', partial.partial === true && partial.parts.length === 1);
+  check('parse parcial não inventa triângulos', partial.stats.triangles === 0);
+  check('parse parcial expõe a nuvem de pontos', partial.parts[0].points.length === 6);
+
+  // Streaming: o OBJ chega em chunks SSE e o progresso mostra a malha crescendo.
+  const encoder = new TextEncoder();
+  const sse = (content) => 'data: ' + JSON.stringify({ choices: [{ delta: { content } }] }) + '\n\n';
+  const sseParts = [
+    'v -1 -1 -1\nv 1 -1 -1\nv 1 1 -1\nv -1 1 -1\nv -1 -1 1\nv 1 -1 1\nv 1 1 1\nv -1 1 1\n',
+    'f 5 6 7 8\nf 4 3 2 1\n',
+    'f 1 5 8 4\nf 2 3 7 6\n',
+    'f 4 8 7 3\nf 1 2 6 5\n'
+  ].map(sse).concat(['data: [DONE]\n\n']);
+  let streamIndex = 0;
+  const streamResponse = {
+    ok: true,
+    headers: { get: () => 'text/event-stream' },
+    body: {
+      getReader() {
+        return {
+          read() {
+            return new Promise((resolve) => {
+              setTimeout(() => {
+                if (streamIndex >= sseParts.length) {
+                  resolve({ done: true });
+                  return;
+                }
+                resolve({ done: false, value: encoder.encode(sseParts[streamIndex++]) });
+              }, 320);
+            });
+          }
+        };
+      }
+    }
+  };
+  const progress = [];
+  const streamed = await Mesh.generate({
+    baseUrl: 'http://127.0.0.1:8080/v1',
+    prompt: 'cube',
+    sizeMm: 20,
+    onProgress: (partialMesh) => progress.push(partialMesh),
+    fetchImpl: () => Promise.resolve(streamResponse)
+  });
+  check('streaming emite progresso parcial', progress.length >= 2, String(progress.length));
+  check('progresso parcial tem triângulos', progress.some((p) => p.stats.triangles > 0));
+  check('progresso inicial mostra a nuvem de pontos',
+    progress.some((p) => (p.parts || []).some((part) => part.points && part.points.length)));
+  check('progresso parcial é marcado como parcial', progress.some((p) => p.partial === true));
+  check('progresso mostra tokens/s', progress.some((p) => p.tps > 0 && p.tokens > 0));
+  check('resultado final mostra tokens/s', streamed.tps > 0 && streamed.tokens > 0);
+  check('streaming termina com a malha completa', streamed.stats.triangles === 12 && streamed.partial === false);
+  check('streaming mantém as cascas no resultado final', streamed.shells.length === 1);
+
+  check('ferramenta llama_mesh está registrada no agente',
+    Agent.tools.some((tool) => tool.function && tool.function.name === 'llama_mesh'));
+}
+
+async function testAgentLlamaMesh() {
+  section('Agente: usa o LLaMA-Mesh como ferramenta');
+
+  const events = [];
+  const calls = [];
+  const host = {
+    getSettings: () => ({ apiKey: 'test', baseUrl: 'https://example.test/v1', model: 'deepseek-v4.1-flash', maxSteps: 5, effort: 'low', sessionId: 's' }),
+    describeContext: async () => 'LLaMA-Mesh local: ativado',
+    llamaMesh: async (prompt, opts) => {
+      calls.push({ prompt, opts });
+      return {
+        text: 'Rascunho: dragão (12 triângulos).',
+        stats: { size: [60, 40, 30], volume: 1000, triangles: 12 },
+        images: [{ view: 'perspective', dataUrl: 'data:image/jpeg;base64,AA==' }],
+        report: 'Laudo do rascunho: silhueta ok.'
+      };
+    },
+    onEvent: (type, payload) => events.push({ type, payload })
+  };
+
+  let apiCalls = 0;
+  const fakeApi = {
+    chat: async () => {
+      apiCalls++;
+      if (apiCalls === 1) {
+        return {
+          role: 'assistant',
+          content: '',
+          toolCalls: [{
+            id: 'mesh_1',
+            name: 'llama_mesh',
+            arguments: { prompt: 'a low poly dragon', name: 'Dragão', size_mm: 60 }
+          }]
+        };
+      }
+      return { role: 'assistant', content: 'Rascunho usado como referência.', toolCalls: [] };
+    }
+  };
+
+  const agent = Agent.create(host, fakeApi);
+  const answer = await agent.send('Crie um dragão');
+  check('agente chamou llama_mesh uma vez', calls.length === 1);
+  check('prompt chegou em inglês', calls[0].prompt === 'a low poly dragon');
+  check('tamanho do rascunho chegou ao host', calls[0].opts.sizeMm === 60);
+  check('resultado da ferramenta inclui o laudo do rascunho',
+    events.some((e) => e.type === 'tool' && e.payload.name === 'llama_mesh' &&
+      e.payload.report.indexOf('Laudo do rascunho') !== -1));
+  check('agente concluiu depois do rascunho', answer === 'Rascunho usado como referência.');
+}
+
 function main() {
   testKernel();
   testText();
   testApi();
-  return testAgent().then(testAgentPlan).then(function () {
+  return testMesh()
+    .then(testAgent)
+    .then(testAgentPlan)
+    .then(testAgentLlamaMesh)
+    .then(function () {
     console.log('\n' + passed + ' passaram, ' + failed + ' falharam');
     if (failed) {
       console.log('\nFalhas:');
