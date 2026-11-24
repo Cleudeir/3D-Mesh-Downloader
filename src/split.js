@@ -2,7 +2,7 @@
  * Página do divisor 3MF por paint_color.
  *
  * Lê o arquivo local, delega o parse/exportação para split/3mf.js e usa o
- * renderizador do Estúdio IA para a prévia por grupo de cor.
+ * renderizador do Estúdio IA para a prévia por cor/filamento.
  */
 (function () {
   'use strict';
@@ -26,9 +26,12 @@
     hidden: {},
     view: 'perspective',
     token: 0,
-    parsing: false,
-    singleUrl: null
+    parsing: false
   };
+
+  function nextTick() {
+    return new Promise(function (resolve) { window.setTimeout(resolve, 16); });
+  }
 
   function setStatus(text, kind) {
     els.status.textContent = text || '';
@@ -102,7 +105,7 @@
     renderer.setModel(parts);
     renderer.setView(state.view);
     els.empty.hidden = parts.length > 0;
-    els.previewTitle.textContent = 'Prévia 3D · ' + parts.length + ' de ' + state.result.groups.length + ' grupo(s)';
+    els.previewTitle.textContent = 'Prévia 3D · ' + parts.length + ' de ' + state.result.groups.length + ' cor(es)';
   }
 
   function renderWarnings(warnings) {
@@ -160,34 +163,21 @@
   }
 
   function revokeSingleLink() {
-    if (state.singleUrl) {
-      URL.revokeObjectURL(state.singleUrl);
-      state.singleUrl = null;
-    }
-    if (els.singleStl) {
-      els.singleStl.removeAttribute('href');
-      els.singleStl.removeAttribute('download');
-      els.singleStl.setAttribute('aria-disabled', 'true');
-      els.singleStl.title = '';
-    }
+    setSingleEnabled(false);
   }
 
-  function prepareSingleLink(result) {
-    revokeSingleLink();
-    if (!result || !result.groups.length) return;
-    var output = Split3mf.exportSingleStl(result.groups, state.fileName);
-    var blob = new Blob([output.data], { type: 'model/stl' });
-    state.singleUrl = URL.createObjectURL(blob);
-    els.singleStl.href = state.singleUrl;
-    els.singleStl.download = output.name;
-    els.singleStl.setAttribute('aria-disabled', 'false');
-    els.singleStl.title = 'Baixar ' + output.name + ' · ' + result.groups.length + ' solid(s)';
+  function setSingleEnabled(enabled) {
+    if (!els.singleStl) return;
+    els.singleStl.disabled = !enabled;
+    els.singleStl.title = enabled
+      ? 'STL ASCII com um solid por cor (gerado na hora)'
+      : '';
   }
 
   function renderResult(result) {
     state.result = result;
     state.hidden = {};
-    prepareSingleLink(result);
+    setSingleEnabled(result.groups.length > 0);
     els.optionsPanel.hidden = false;
     els.summaryPanel.hidden = false;
     els.groupsPanel.hidden = false;
@@ -198,20 +188,24 @@
     els.dims.textContent = 'Dimensões: ' + formatSize(result.size) + ' · unidade do 3MF: ' + (result.unit || 'millimeter');
     renderWarnings(result.warnings);
     renderGroups();
-    els.colorNote.textContent = result.colors.length
-      ? 'Cores dos filamentos do projeto: ' + result.colors.join(', ') + '. A prévia usa essa ordem.'
+    var palette = result.colors.map(function (color, index) {
+      return color ? (index + 1) + ': ' + color : '';
+    }).filter(function (item) { return item; });
+    els.colorNote.textContent = palette.length
+      ? 'Filamentos do projeto — ' + palette.join(' · ') + '. A prévia usa essas cores.'
       : 'O projeto não informou filamentos; as cores da prévia são estimadas.';
     els.previewTitle.textContent = 'Prévia 3D';
     updatePreview();
     var kind = result.warnings.length ? 'warn' : 'ok';
-    setStatus(result.groups.length + ' grupo(s) · ' + formatInt(result.triangles) + ' triângulos · pronto', kind);
+    setStatus(result.groups.length + ' cor(es) · ' + formatInt(result.triangles) + ' triângulos · pronto', kind);
   }
 
   async function parseBuffer() {
     if (!state.buffer) return;
     var token = ++state.token;
     state.parsing = true;
-    setStatus('lendo ZIP e separando os paint_colors...', '');
+    setStatus('lendo o 3MF e separando as cores...', '');
+    await nextTick();
     try {
       var result = await Split3mf.parse(state.buffer, {
         applyTransforms: els.applyTransforms.checked
@@ -285,32 +279,47 @@
     setStatus('Escolha um .3mf para começar.', '');
   }
 
-  function downloadGroup(group) {
+  async function downloadGroup(group) {
     if (!group) return;
     var format = els.format.value;
+    setStatus('montando ' + group.name + ' em ' + format.toUpperCase() + '...', '');
+    await nextTick();
     var output = Split3mf.exportGroup(group, format, state.fileName);
     saveFile(output.name, output.data, mimeFor(format));
     setStatus('baixando ' + output.name, 'ok');
   }
 
-  function downloadZip() {
+  async function downloadZip() {
     if (!state.result) return;
     var format = els.format.value;
-    var files = state.result.groups.map(function (group) {
-      return Split3mf.exportGroup(group, format, state.fileName);
-    });
-    if (!files.length) {
-      setStatus('não há grupos para baixar', 'err');
+    var groups = state.result.groups;
+    if (!groups.length) {
+      setStatus('não há cores para baixar', 'err');
       return;
     }
+    setStatus('montando ' + groups.length + ' arquivo(s) em ' + format.toUpperCase() + '...', '');
+    await nextTick();
+    var files = groups.map(function (group) {
+      return Split3mf.exportGroup(group, format, state.fileName);
+    });
     var zip = Split3mf.zipFiles(files);
-    saveFile(baseName() + '_paint_colors.zip', zip, 'application/zip');
+    saveFile(baseName() + '_cores.zip', zip, 'application/zip');
     setStatus('baixando ' + files.length + ' arquivo(s) em ZIP', 'ok');
   }
 
-  function downloadSingleStl() {
-    if (!state.result || !state.singleUrl) return;
-    setStatus('baixando ' + els.singleStl.download + ' · ' + state.result.groups.length + ' solid(s)', 'ok');
+  async function downloadSingleStl() {
+    if (!state.result) return;
+    var result = state.result;
+    setStatus('montando o STL único (' + formatInt(result.triangles) + ' triângulos)...', '');
+    await nextTick();
+    try {
+      var output = Split3mf.exportSingleStl(result.groups, state.fileName);
+      var total = output.data.reduce(function (sum, chunk) { return sum + chunk.length; }, 0);
+      saveFile(output.name, new Blob(output.data, { type: 'model/stl' }), 'model/stl');
+      setStatus('baixando ' + output.name + ' · ' + formatBytes(total), 'ok');
+    } catch (error) {
+      setStatus('não foi possível montar o STL único: ' + (error && error.message ? error.message : error), 'err');
+    }
   }
 
   function bind() {

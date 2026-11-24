@@ -77,6 +77,9 @@ visível em qualquer aba. O badge de cada aba resume o estado (malhas
 selecionadas, padrões ativos) e a última aba usada é restaurada ao reabrir o
 popup. Teclado: `←`/`→` alternam e `1`/`2`/`3`/`4` saltam.
 
+Na aba **Modelos** ficam a lista de malhas e o botão **Baixar**; na aba **3MF**,
+o **Conversor local para 3MF**.
+
 **Tudo o que você configura fica salvo** em `chrome.storage.local`: formato,
 opções de exportação, padrões de exclusão, regra de tamanho e a aba ativa.
 Fechar e reabrir o popup não volta nada ao padrão.
@@ -286,23 +289,69 @@ o furo do seu lado — é o que fecha a ponta direita no diâmetro menor.
 ## Separador 3MF por cor
 
 A aba **3MF** do popup abre o divisor de modelos multicoloridos. Ele lê o
-`.3mf` do Bambu Studio/Creality **no próprio navegador** — ZIP + XML + geometria,
-sem Python e sem enviar o arquivo para servidor — e separa os triângulos pelo
-atributo `paint_color`, exatamente como o projeto **ColorSplit3mf**:
+`.3mf` do Bambu Studio/Orca/Creality **no próprio navegador** — ZIP + XML +
+geometria, sem Python e sem enviar o arquivo para servidor — e separa os
+triângulos pela cor do filamento resolvida em duas camadas:
 
-- triângulos sem pintura vão para `paint_color_0`;
-- o botão **STL único** gera **um arquivo STL ASCII** com um `solid` por grupo —
-  um arquivo só, com as partes separadas (STL não guarda nomes de materiais);
-- cada grupo também pode virar um arquivo `nome_paint_color_N.stl` (ou `.obj`/`.ply`);
+- **`paint_color` por triângulo** (pincel do Bambu/Orca/Prusa): a string é uma
+  árvore de subdivisão em hex lida da direita para a esquerda; o divisor decodifica
+  o estado dominante de cada triângulo (`4` = filamento 1, `8` = filamento 2,
+  `0C` = filamento 3, `1C` = filamento 4, `4C` = filamento 7…);
+- **`extruder` por peça/objeto** em `Metadata/model_settings.config`, usado
+  quando o modelo é multicolor por peças em vez de pincel (é o caso de muitos
+  modelos do MakerWorld/Creality, como o `medalha leão.3mf`);
+- triângulo sem pintura herda a cor da peça; sem nenhuma informação de cor, tudo
+  fica em `paint_color_0`;
+- os grupos saem como `filamento_N`, com a cor real de
+  `Metadata/project_settings.config` (`filament_colour`), e `Metadata/plate_N.json`
+  como reserva;
+- o botão **STL único** gera, sob demanda, **um arquivo STL ASCII** com um
+  `solid` por cor — um arquivo só, com as partes separadas (STL não guarda nomes
+  de materiais);
+- cada grupo também pode virar um arquivo `nome_filamento_N.stl` (ou `.obj`/`.ply`);
 - transformações de `build` e de componentes são aplicadas opcionalmente;
-- cores dos filamentos vêm de `Metadata/project_settings.config` para a prévia;
 - a página mostra prévia 3D, contagem de triângulos, dimensões e permite baixar
-  o STL único, um grupo isolado ou todos juntos em um ZIP.
+  o STL único, uma cor isolada ou todas juntas em um ZIP.
+
+O leitor de XML varre as tags direto, sem montar árvore: o `medalha leão.3mf`
+(4,3 MB, 28 MB de XML, 377 mil triângulos e 101 peças) abre em cerca de 1 s no
+Chrome. O STL único (~70 MB de texto) é montado só quando o botão é clicado, em
+blocos, para não travar a abertura.
 
 Não há dependência externa: o leitor ZIP usa `DecompressionStream` do Chrome e
 os writers STL/OBJ/PLY/ZIP são próprios. A implementação é inspirada no
 **ColorSplit3mf** (`D:\Projetos\3dsplit`), mas foi reescrita em JavaScript para
 rodar dentro da extensão, sem `trimesh`/Python.
+
+## Conversor local para 3MF com cores
+
+O botão **Conversor local para 3MF** (aba **3MF**) abre uma página que lê o
+arquivo do seu disco e grava um `.3mf` com **uma cor por peça** — sem servidor,
+sem token e sem raspar página nenhuma:
+
+| Entrada | O que é aproveitado |
+|---|---|
+| `.glb` / `.gltf` (+ `.bin`) | hierarquia de nodes aplicada; cor de `pbrMetallicRoughness.baseColorFactor` (linear → sRGB) ou a média de `COLOR_0` |
+| `.obj` (+ `.mtl`) | grupos por `usemtl`; cores `Kd` do `.mtl` ou uma paleta quando o `.mtl` não vem |
+| `.stl` (binário ou ASCII) | uma peça; a cor pode ser trocada na lista |
+| `.zip` com glTF | abre o pacote, pega `scene.gltf` + `scene.bin` e ignora as texturas |
+
+- **Prévia 3D** com giro/zoom (WebGL2 puro, sem three.js) e as cores já aplicadas
+- **Escala** em mm por unidade (glTF entra em metros → ×1000 e é convertido) ou
+  **altura alvo** em mm, que reescala a peça inteira
+- Saída em **milímetros** e **Z para cima**; a opção *Y para cima* converte
+  glTF/Three.js (rotação de −90° em X)
+- Cada peça vira um `<object>`; as cores viram um `<basematerials>` e cada peça
+  aponta para a sua com `pid`/`pindex`
+
+O `.3mf` é um ZIP com `[Content_Types].xml`, `_rels/.rels` e
+`3D/3dmodel.model` — o mesmo writer *store* do divisor 3MF. A geometria é
+deduplicada com coordenadas arredondadas a 0,1 µm, então o arquivo não carrega
+vértice repetido.
+
+> Textura **não** vira cor: o core do 3MF não carrega textura. A peça recebe a
+> cor do material (ou a média dos vértices) e a página avisa quando o modelo é
+> texturizado.
 
 ## Estúdio IA (criador de geometria)
 
@@ -323,6 +372,66 @@ captura perspectiva, topo, baixo, frente e lados, manda para o inspetor e entreg
 ao agente só o laudo textual + as medidas. Isso mantém o custo baixo e o agente
 focado no código. Os dois modelos podem ser trocados em **Ajustes**.
 
+### Rascunho LLaMA-Mesh (text-to-3D local)
+
+O agente pode chamar a ferramenta **`llama_mesh`** para pedir um rascunho
+low-poly ao [LLaMA-Mesh](https://huggingface.co/Zhengyi/LLaMA-Mesh). O modelo
+roda **fora do navegador**, em um servidor OpenAI-compatible em localhost:
+
+Baixe o GGUF para `models/` (com retomada) e o build **CUDA** do llama.cpp:
+
+```bash
+npm run model:download
+npm run llama:cuda
+```
+
+O build do CUDA fica em `tools\llama-cuda/` (ignorado pelo git). Em NVIDIA ele e
+bem mais rapido que o build Vulkan do winget. Inicie com contexto menor e KV
+quantizado para caber inteiro na VRAM:
+
+```bash
+tools\llama-cuda\llama-server.exe -m models\llama-mesh-q4_k_m.gguf \
+  -c 8192 -np 1 -fa on -ctk q8_0 -ctv q8_0 -ngl 99 -dev CUDA0 \
+  -a llama-mesh --host 127.0.0.1 --port 8080
+```
+
+Na RTX 4060 Laptop, o build **CUDA** com `-c 8192` e KV `q8_0` gerou a
+**~41 tokens/s**; o build Vulkan ficou em **~3 tokens/s**. Como o OBJ e texto,
+essa diferenca aparece direto no tempo do rascunho. O contexto de **8192** e
+necessario para malhas grandes nao serem truncadas antes do fim.
+
+Se preferir o build Vulkan (mais lento), o comando equivalente e:
+
+```bash
+winget install llama.cpp
+llama-server -m models\llama-mesh-q4_k_m.gguf -c 8192 -np 1 -fa on \
+  -ctk q8_0 -ctv q8_0 -ngl 99 -a llama-mesh --host 127.0.0.1 --port 8080
+```
+
+Em **Ajustes**, ative **Usar LLaMA-Mesh como ferramenta do agente**, informe a
+URL (`http://127.0.0.1:8080/v1`), o modelo (`llama-mesh`) e o tempo limite.
+O botao **Verificar LLaMA-Mesh** consulta `/v1/models`; **Baixar modelo (4,9 GB)**
+abre o download do GGUF no navegador (para a pasta do projeto, use o script acima).
+
+O pipeline e **automatico**: o usuario so descreve a peca. Em um objeto novo,
+o host ja gera o rascunho do LLaMA-Mesh antes do primeiro passo do agente e
+injeta o resultado no contexto; nao e preciso pedir "use llama_mesh". O agente
+tambem decompoe sozinho em partes (`plan_parts` + `run_geometry`), sem o usuario
+pedir para separar.
+
+O rascunho aparece na cena como **contorno roxo** e **nao entra no STL final**.
+Ele eh montado em **streaming**: os vertices viram uma nuvem de pontos e os
+triangulos vao surgindo conforme o modelo gera os tokens (SSE do
+`llama-server`); o chip e o HUD mostram a contagem crescendo e a velocidade
+em **~tokens/s**. Ele serve de alvo visual para silhueta, proporcoes e volumes: o
+agente chama `plan_parts` e reconstroi a peca com `run_geometry`, parte por
+parte. Se o servidor estiver desligado, a ferramenta falha e o agente segue com
+`search_reference`.
+
+> O LLaMA-Mesh original usa a licenca **NSCLv1 (apenas uso nao comercial)**,
+> alem da licenca Llama 3.1. O rascunho nao garante malha fechada ou printavel;
+> o STL do rascunho so deve ser usado como emergencia.
+
 ### Objetos = conversas
 
 Cada objeto guarda **a própria conversa, o script, as versões, o rascunho do editor,
@@ -335,8 +444,8 @@ a vista 3D e a conversa em andamento.
 
 O script gerado fica no editor, visível e editável (Ctrl+Enter executa). Cada
 execução bem-sucedida vira uma versão; a biblioteca guarda as últimas 12. O agente
-recebe o script atual e a lista de objetos no contexto e pode reaproveitar
-soluções anteriores com `load_object`.
+recebe **apenas o script do objeto atual** — ele não lê nem usa outros objetos
+da biblioteca como referência.
 
 ### Trabalho por partes
 
@@ -481,6 +590,10 @@ O gerador de nomes também tem seção própria: leitura da fonte (`cmap`/`glyf`
 contorno por marching squares, triangulação com furos, malha **fechada** das duas
 peças (cada aresta em exatamente dois triângulos), volume positivo, STL binário e
 o `.scad` exportado.
+
+O conversor 3MF tem seção própria (`test/convert.js`): GLB com hierarquia e cor de
+material, OBJ com `usemtl`/`Kd`, STL binário e ASCII, transformação de eixo/escala
+e o pacote 3MF (entradas do ZIP, CRC, `basematerials`, dedupe de vértices).
 
 ```
 163 passed, 0 failed

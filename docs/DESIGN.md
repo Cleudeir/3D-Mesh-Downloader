@@ -384,6 +384,26 @@ separadas.
 
 ## Bugs encontrados durante o desenvolvimento
 
+### 3MF multicolor "explodia" as peças
+
+O `medalha leão.3mf` (101 peças, duas cores) aparecia com as peças espalhadas em
+vez de montadas, embora o Bambu Studio gerasse o G-code e imprimisse normalmente.
+A geometria e o `paint_color` estavam certos; o erro era a **ordem de composição
+das matrizes**.
+
+O 3MF usa vetor-linha: o ponto vira `p · componente · build` (o componente vale
+primeiro, o build por último). O divisor fazia `build · componente`, e com isso a
+translação do componente não passava pela escala do build. Como o build desta
+peça tem escala `0.643 / 0.494 / 0.674` e as peças se afastam do centro por essa
+translação, cada peça ia parar ~2× mais longe: o medalhão de 46 × 48 mm virava
+62 × 88 mm, com as peças soltas. A peça da base tem translação ~0, então ela
+ficava no lugar e só as outras "explodiam" — o que confundia o diagnóstico.
+
+**Correção:** `multiply(componente, acumulado)`. O teste de transformações ganhou
+um build **com escala** (antes só testava translação, e as duas ordens davam o
+mesmo resultado). Depois da correção as dimensões batem com o `plate_1.json`
+(46,4 × 48,5 mm) e a prévia mostra o leão montado.
+
 ### `InstancedMesh` com zero instâncias
 
 Um `InstancedMesh` com `instanceMatrix.count === 0` era **descartado em
@@ -534,6 +554,74 @@ para uma pasta local.
 - Content scripts em `<all_urls>` — necessário para injetar antes do three.js
   da página.
 - O arquivo gerado fica **no disco do usuário**; nada sai do navegador.
+
+## Separador 3MF por cor
+
+| Arquivo | Papel |
+|---|---|
+| `src/split.html` / `src/split.js` | Página: dropzone, resumo, lista de cores, prévia e downloads |
+| `src/split/3mf.js` | Leitor ZIP/XML/3MF, decodificador de `paint_color` e writers STL/OBJ/PLY/ZIP |
+| `src/ia/render.js` | Prévia 3D em canvas puro (z-buffer), compartilhada com o Estúdio IA |
+
+**As duas camadas de cor.** No 3MF do Bambu/Orca a cor não está em um só lugar:
+por **peça/objeto** em `Metadata/model_settings.config` (`extruder`) e por
+**triângulo** em `paint_color`, usado pelo pincel. O divisor resolve o triângulo
+assim: `paint_color` → estado dominante; sem pintura → extruder da peça; sem
+peça → extruder do objeto; sem nada → grupo `paint_color_0`. A paleta vem de
+`filament_colour` em `project_settings.config` (índice = slot − 1), com
+`plate_N.json` (`filament_colors` + `filament_ids`, 0-based) como reserva.
+
+**Decodificação do `paint_color`.** É uma árvore de subdivisão do
+`TriangleSelector`, serializada em hex e lida da direita para a esquerda. Cada
+nibble: bits 0-1 = lados divididos (0 = folha), bits 2-3 = estado na folha
+(`0` = sem pintura, `n` = filamento *n*). Estado `3` é escape: o próximo nibble
+continua a contagem (`0C` → 3, `1C` → 4, `4C` → 7). Em nós divididos, os filhos
+são lidos recursivamente e o divisor fica com o estado de maior peso — bom para
+prévia e para separar, sem reconstruir os subtriângulos. O PrusaSlicer grava o
+mesmo bitstream em `slic3rpe:mmu_segmentation`, aceito como apelido.
+
+**Desempenho.** O leitor não monta árvore DOM: varre as tags de cada `<object>`,
+guarda vértices em `Float32Array` e triângulos/pintura em `Uint32Array`/`Int32Array`,
+e enche os grupos em blocos de 36 mil floats. No `medalha leão.3mf` (4,3 MB,
+28 MB de XML, 377 mil triângulos, 101 peças) o parse caiu de ~5,2 s para ~1 s no
+Chrome. O STL único é ASCII com um `solid` por cor (~70 MB de texto) e passou a
+ser gerado **sob demanda**, em blocos de string: antes era montado na abertura e
+custava ~7 s de bloqueio. A prévia reaproveita o `ImageData`/z-buffer e desenha
+em 55% da resolução durante o arraste (malhas com mais de 120 mil triângulos),
+voltando ao tamanho cheio ao soltar o mouse.
+
+## Conversor local 3MF
+
+| Arquivo | Papel |
+|---|---|
+| `src/convert.html` / `src/convert.js` | Página: dropzone, lista de peças/cores, escala e exportação |
+| `src/convert/load.js` | Leitores glTF/GLB, OBJ (+MTL) e STL (binário/ASCII) |
+| `src/convert/mf3.js` | Escritor do pacote 3MF (core) com `basematerials` |
+| `src/convert/render.js` | Prévia WebGL2 (uma malha por peça, cor por `uniform`) |
+
+**Por que um leitor próprio?** A extensão não depende de three.js em página
+nenhuma; trazer o `GLTFLoader` só para o conversor seria ~600 KB e um segundo
+modelo de cena. O leitor resolve accessors, buffers (GLB, `.bin` externo e
+`data:`) e a hierarquia de nodes — para o 3MF só importam posição e material.
+
+**Cores.** O 3MF core não carrega textura: a cor é por objeto (`basematerials` +
+`pid`/`pindex`). Cada peça recebe a cor do material (linear → sRGB) ou, quando não
+há fator, a média de `COLOR_0`; sem material, cinza. Textura vira aviso na página.
+
+**ZIP com glTF.** Um pacote exportado com `scene.gltf`, `scene.bin` e texturas é
+aberto direto: `parseInputs()` usa o mesmo leitor de `split/3mf.js`
+(`readZipEntries` + `readEntry`, com `DecompressionStream` para deflate), passa
+só `.gltf/.glb/.bin/.mtl/.obj/.stl` para o leitor e usa o nome do pacote no
+arquivo final. Textura fica de fora — não é usada.
+
+**Eixos e unidade.** glTF é Y-up e metro; 3MF é Z-up e milímetro. `transform()`
+aplica `(x, -z, y)` — rotação própria, então o winding não muda — e a escala. A
+página guarda as posições originais e só refaz a cópia quando a opção muda.
+
+**Dedupe.** O escritor junta vértices com coordenadas arredondadas a 1/10000 mm
+(0,1 µm). O mesmo arredondamento vai para o XML, então dois vértices que saem
+iguais no arquivo contam como um só — o toro de 80 mil triângulos vira ~40 mil
+vértices.
 
 ## Estúdio IA
 

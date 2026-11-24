@@ -1,6 +1,6 @@
 {
   "name": "3d-mesh-downloader",
-  "version": "2.6.1",
+  "version": "2.7.0",
   "description": "Extensao Chrome que exporta a cena Three.js de qualquer pagina para OBJ (+MTL) ou STL, com normais, UVs, materiais, transformacoes de mundo, filtros e lista de exclusao.",
   "private": false,
   "author": "Cleudeir",
@@ -13,12 +13,15 @@
     "url": "https://github.com/Cleudeir/3D-Mesh-Downloader/issues"
   },
   "scripts": {
-    "test": "node test/run.js && node test/ia.js && node test/split.js",
+    "test": "node test/run.js && node test/ia.js && node test/split.js && node test/convert.js",
     "test:ia": "node test/ia.js",
     "test:split": "node test/split.js",
+    "test:convert": "node test/convert.js",
     "test:browser": "node tools/serve.js",
     "build": "node tools/build.js",
-    "check": "node --check src/injected.js && node --check src/content.js && node --check src/popup.js && node --check src/background.js && node --check src/ia.js && node --check src/ia/kernel.js && node --check src/ia/render.js && node --check src/ia/api.js && node --check src/ia/agent.js && node --check src/ia/runner.js && node --check src/ia/sandbox.js && node --check src/split.js && node --check src/split/3mf.js && node test/run.js && node test/ia.js && node test/split.js"
+    "model:download": "powershell -ExecutionPolicy Bypass -File tools/download-llama-mesh.ps1",
+    "llama:cuda": "powershell -ExecutionPolicy Bypass -File tools/setup-llama-cuda.ps1",
+    "check": "node --check src/injected.js && node --check src/content.js && node --check src/popup.js && node --check src/background.js && node --check src/ia.js && node --check src/ia/kernel.js && node --check src/ia/mesh.js && node --check src/ia/render.js && node --check src/ia/api.js && node --check src/ia/agent.js && node --check src/ia/runner.js && node --check src/ia/sandbox.js && node --check src/split.js && node --check src/split/3mf.js && node --check src/convert.js && node --check src/convert/load.js && node --check src/convert/mf3.js && node --check src/convert/render.js && node test/run.js && node test/ia.js && node test/split.js && node test/convert.js"
   },
   "keywords": [
     "threejs",

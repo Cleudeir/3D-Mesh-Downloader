@@ -96,7 +96,7 @@
     }
     .primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
     a.primary, a.ghost { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
-    a[aria-disabled="true"] { opacity: .45; pointer-events: none; }
+    a[aria-disabled="true"], button[disabled] { opacity: .45; pointer-events: none; }
     .primary:hover { filter: brightness(1.07); }
     .ghost:hover, .mini:hover { border-color: var(--accent); color: var(--accent); }
     .mini { font-size: 10.5px; padding: 4px 7px; }
@@ -197,7 +197,7 @@
     </svg>
     <div>
       <h1>Separador 3MF por cor</h1>
-      <span class="sub">paint_color → STL, OBJ ou PLY · tudo no navegador</span>
+      <span class="sub">paint_color + extruder → STL, OBJ ou PLY · tudo no navegador</span>
     </div>
     <span class="spacer"></span>
     <span class="version">ColorSplit no 3D Mesh Downloader</span>
@@ -236,14 +236,14 @@
           <input type="checkbox" id="applyTransforms" checked>
           Aplicar transformações do 3MF (build e componentes)
         </label>
-        <p class="hint">Triângulos sem pintura vão para <b>paint_color_0</b>. O botão <b>STL único</b> gera um STL ASCII com um <b>solid</b> por grupo: um arquivo só, com as partes separadas. STL não guarda nomes de peças nem materiais; se o fatiador juntar os solids, use “dividir em partes” ou baixe um por grupo.</p>
+        <p class="hint">A cor de cada triângulo vem do <b>paint_color</b> quando existe; sem pintura, vale o <b>extruder</b> da peça em <b>model_settings.config</b>. Triângulos sem cor nenhuma ficam em <b>paint_color_0</b>. O botão <b>STL único</b> gera um STL ASCII com um <b>solid</b> por cor: um arquivo só, com as partes separadas. STL não guarda nomes de peças nem materiais; se o fatiador juntar os solids, use “dividir em partes” ou baixe um por grupo.</p>
       </section>
 
       <section class="panel" id="summaryPanel" hidden>
         <h2>Resumo</h2>
         <div class="stats">
           <div><b id="statTriangles">—</b><span>triângulos</span></div>
-          <div><b id="statGroups">—</b><span>grupos</span></div>
+          <div><b id="statGroups">—</b><span>cores</span></div>
           <div><b id="statObjects">—</b><span>objetos</span></div>
         </div>
         <div class="dims" id="dims"></div>
@@ -257,8 +257,8 @@
         </div>
         <div class="groups" id="groups"></div>
         <div class="actions">
-          <a id="singleStl" class="primary" href="#" download aria-disabled="true">Baixar STL único</a>
-          <button type="button" class="ghost" id="zip">Um por grupo (.zip)</button>
+          <button type="button" class="primary" id="singleStl" disabled>Baixar STL único</button>
+          <button type="button" class="ghost" id="zip">Um por cor (.zip)</button>
           <button type="button" class="ghost danger" id="clear">Limpar</button>
         </div>
         <p class="hint" id="colorNote"></p>
@@ -280,7 +280,7 @@
         <canvas id="preview"></canvas>
         <div class="empty" id="empty">
           <b>Nenhum 3MF carregado</b>
-          <span>A prévia mostra cada paint_color com uma cor.</span>
+          <span>A prévia mostra cada cor/filamento com sua cor.</span>
         </div>
       </div>
       <div class="status" id="status">Escolha um .3mf para começar.</div>
